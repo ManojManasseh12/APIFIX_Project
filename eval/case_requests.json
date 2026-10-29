@@ -1,0 +1,654 @@
+{
+  "AUTH-001": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does this request return 401?",
+    "mock_setup": []
+  },
+  "AUTH-002": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Authorization": "Token abc"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the auth scheme rejected?",
+    "mock_setup": []
+  },
+  "AUTH-003": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Authorization": "Bearer expired-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "The token may be expired; confirm from evidence.",
+    "mock_setup": []
+  },
+  "AUTH-004": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Authorization": "Bearer bad-signature-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the token signature rejected?",
+    "mock_setup": []
+  },
+  "AUTH-005": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/admin/users",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does a valid user get 403?",
+    "mock_setup": []
+  },
+  "AUTH-006": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "X-Api-Key": "test-key"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the API key ignored?",
+    "mock_setup": []
+  },
+  "AUTH-007": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Basic dXNlcjpwYXNz"
+    },
+    "body": {
+      "items": [
+        {
+          "sku": "A1",
+          "quantity": 2
+        }
+      ]
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is Basic auth rejected?",
+    "mock_setup": []
+  },
+  "AUTH-008": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/reports",
+    "headers": {
+      "Authorization": "Bearer reports-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the reports scope missing?",
+    "mock_setup": []
+  },
+  "AUTH-009": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Authorization": "Bearer valid-user-token\\n"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the token malformed?",
+    "mock_setup": []
+  },
+  "AUTH-010": {
+    "method": "DELETE",
+    "url": "http://localhost:8001/v1/orders/42",
+    "headers": {
+      "Authorization": "Bearer suspended-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 403,
+    "question": "Why is the account restricted?",
+    "mock_setup": [],
+    "no_retest": true
+  },
+  "END-001": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profle",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the profile path return 404?",
+    "mock_setup": []
+  },
+  "END-002": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/orders/9999",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the order not found?",
+    "mock_setup": []
+  },
+  "END-003": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {},
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is POST rejected on the profile route?",
+    "mock_setup": []
+  },
+  "END-004": {
+    "method": "GET",
+    "url": "http://localhost:8001/v2/profile",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the v2 path return 404?",
+    "mock_setup": []
+  },
+  "END-005": {
+    "method": "PUT",
+    "url": "http://localhost:8001/v1/orders/42",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {},
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is PUT rejected?",
+    "mock_setup": []
+  },
+  "END-006": {
+    "method": "GET",
+    "url": "http://localhost:8001/orders",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the path without /v1 fail?",
+    "mock_setup": []
+  },
+  "END-007": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/orders/",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the trailing slash redirect?",
+    "mock_setup": []
+  },
+  "END-008": {
+    "method": "DELETE",
+    "url": "http://localhost:8001/v1/reports",
+    "headers": {
+      "Authorization": "Bearer reports-read-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is DELETE rejected?",
+    "mock_setup": []
+  },
+  "END-009": {
+    "method": "GET",
+    "url": "http://localhost:8001/V1/Products",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the path casing matter?",
+    "mock_setup": []
+  },
+  "END-010": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/orders/42/items",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the old sub-route gone?",
+    "mock_setup": []
+  },
+  "VAL-001": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {},
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is items required?",
+    "mock_setup": []
+  },
+  "VAL-002": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {
+      "items": [
+        {
+          "sku": "A1",
+          "quantity": "two"
+        }
+      ]
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the quantity rejected?",
+    "mock_setup": []
+  },
+  "VAL-003": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token",
+      "Content-Type": "application/json"
+    },
+    "body": "{\"items\":[{\"sku\":\"A1\",\"quantity\":2},]}",
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the JSON rejected?",
+    "mock_setup": []
+  },
+  "VAL-004": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token",
+      "Content-Type": "text/plain"
+    },
+    "body": "{\"items\": [{\"sku\": \"A1\", \"quantity\": 2}]}",
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the media type rejected?",
+    "mock_setup": []
+  },
+  "VAL-005": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": "{\"items\": [{\"sku\": \"A1\", \"quantity\": 2}]}",
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the missing content type rejected?",
+    "mock_setup": []
+  },
+  "VAL-006": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {
+      "items": [
+        {
+          "sku": "A1",
+          "quantity": -1
+        }
+      ]
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is a negative quantity rejected?",
+    "mock_setup": []
+  },
+  "VAL-007": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/users",
+    "headers": {},
+    "body": {
+      "email": "not-an-email"
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the email rejected?",
+    "mock_setup": []
+  },
+  "VAL-008": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/orders?page=abc",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the page parameter rejected?",
+    "mock_setup": []
+  },
+  "VAL-009": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {
+      "items": [
+        {
+          "sku": "A1",
+          "quantity": 2
+        }
+      ],
+      "notes": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the payload too large?",
+    "mock_setup": []
+  },
+  "VAL-010": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {
+      "items": [
+        {
+          "sku": "A1",
+          "quantity": 2
+        }
+      ],
+      "status": "archived"
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Why is the status value rejected?",
+    "mock_setup": []
+  },
+  "RNET-001": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/search",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why am I rate limited?",
+    "mock_setup": [
+      {
+        "rate_after": 0
+      }
+    ]
+  },
+  "RNET-002": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/reports",
+    "headers": {
+      "Authorization": "Bearer reports-read-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the server return 500?",
+    "mock_setup": [
+      {
+        "path": "/v1/reports",
+        "mode": "500"
+      }
+    ]
+  },
+  "RNET-003": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/reports",
+    "headers": {
+      "Authorization": "Bearer reports-read-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the service unavailable?",
+    "mock_setup": [
+      {
+        "path": "/v1/reports",
+        "mode": "503"
+      }
+    ]
+  },
+  "RNET-004": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/slow-report",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why did the request time out?",
+    "mock_setup": []
+  },
+  "RNET-005": {
+    "method": "GET",
+    "url": "https://nonexistent.invalid/api",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the hostname fail?",
+    "mock_setup": [],
+    "requires_network": true,
+    "no_retest": true
+  },
+  "RNET-006": {
+    "method": "GET",
+    "url": "https://expired-cert.example.test/",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does TLS validation fail?",
+    "mock_setup": [],
+    "requires_network": true,
+    "no_retest": true
+  },
+  "RNET-007": {
+    "method": "GET",
+    "url": "http://localhost:9/",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is this URL blocked?",
+    "mock_setup": [],
+    "no_retest": true
+  },
+  "RNET-008": {
+    "method": "POST",
+    "url": "http://localhost:8001/v1/slow-orders",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": {
+      "items": [
+        {
+          "sku": "A1",
+          "quantity": 2
+        }
+      ]
+    },
+    "timeout_s": 5,
+    "expected_status": 201,
+    "question": "Did the order get created before the timeout?",
+    "mock_setup": []
+  },
+  "RNET-009": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Provider fallback unit test",
+    "mock_setup": [],
+    "skip": true,
+    "reason": "Force primary provider 429; run as a unit test."
+  },
+  "RNET-010": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/reports",
+    "headers": {
+      "Authorization": "Bearer reports-read-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the gateway failing?",
+    "mock_setup": [
+      {
+        "path": "/v1/reports",
+        "mode": "502_html"
+      }
+    ]
+  },
+  "RAG-001": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the profile return 401?",
+    "mock_setup": []
+  },
+  "RAG-002": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/orders/9999",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Is this a missing resource or an auth failure?",
+    "mock_setup": []
+  },
+  "RAG-003": {
+    "method": "GET",
+    "url": "http://localhost:8001/v2/profile",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does v2 fail?",
+    "mock_setup": []
+  },
+  "RAG-004": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/x",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 500,
+    "question": "What does vendor code X-ERR-7731 mean?",
+    "mock_setup": [
+      {
+        "path": "/v1/x",
+        "mode": "500"
+      }
+    ],
+    "no_retest": true
+  },
+  "RAG-005": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "I see a CORS error in the browser; is CORS confirmed?",
+    "mock_setup": []
+  },
+  "RAG-006": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why does the profile return 401?",
+    "mock_setup": []
+  },
+  "RAG-007": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile?leak=key",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the profile response leaking a key?",
+    "mock_setup": []
+  },
+  "RAG-008": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/profile",
+    "headers": {
+      "Cookie": "session=abc"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Is the cookie session expired?",
+    "mock_setup": []
+  },
+  "RAG-009": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/orders?limit=500",
+    "headers": {
+      "Authorization": "Bearer valid-user-token"
+    },
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the limit rejected?",
+    "mock_setup": []
+  },
+  "RAG-010": {
+    "method": "GET",
+    "url": "http://localhost:8001/v1/redirect-https",
+    "headers": {},
+    "body": null,
+    "timeout_s": 5,
+    "expected_status": 200,
+    "question": "Why is the request redirected to HTTPS?",
+    "mock_setup": [],
+    "no_retest": true
+  }
+}

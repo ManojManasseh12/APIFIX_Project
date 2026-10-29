@@ -1,0 +1,145 @@
+{
+  "AUTH-001": [
+    "KB-MDN-401"
+  ],
+  "AUTH-002": [
+    "KB-MDN-401"
+  ],
+  "AUTH-003": [
+    "KB-MDN-401"
+  ],
+  "AUTH-004": [
+    "KB-MDN-401"
+  ],
+  "AUTH-005": [
+    "KB-MDN-403"
+  ],
+  "AUTH-006": [
+    "KB-MDN-401"
+  ],
+  "AUTH-007": [
+    "KB-MDN-401"
+  ],
+  "AUTH-008": [
+    "KB-MDN-403"
+  ],
+  "AUTH-009": [
+    "KB-MDN-401"
+  ],
+  "AUTH-010": [
+    "KB-MDN-403"
+  ],
+  "END-001": [
+    "KB-MDN-404"
+  ],
+  "END-002": [
+    "KB-MDN-404"
+  ],
+  "END-003": [
+    "KB-MDN-405"
+  ],
+  "END-004": [],
+  "END-005": [
+    "KB-MDN-405"
+  ],
+  "END-006": [
+    "KB-MDN-404"
+  ],
+  "END-007": [
+    "KB-MDN-307"
+  ],
+  "END-008": [
+    "KB-MDN-405"
+  ],
+  "END-009": [
+    "KB-MDN-404"
+  ],
+  "END-010": [
+    "KB-MDN-410"
+  ],
+  "VAL-001": [
+    "KB-MDN-422"
+  ],
+  "VAL-002": [
+    "KB-MDN-422"
+  ],
+  "VAL-003": [
+    "KB-MDN-400"
+  ],
+  "VAL-004": [
+    "KB-MDN-415"
+  ],
+  "VAL-005": [
+    "KB-MDN-415"
+  ],
+  "VAL-006": [
+    "KB-MDN-422"
+  ],
+  "VAL-007": [
+    "KB-MDN-422"
+  ],
+  "VAL-008": [
+    "KB-MDN-422"
+  ],
+  "VAL-009": [
+    "KB-MDN-413"
+  ],
+  "VAL-010": [
+    "KB-MDN-422"
+  ],
+  "RNET-001": [
+    "KB-MDN-429"
+  ],
+  "RNET-002": [
+    "KB-MDN-500"
+  ],
+  "RNET-003": [
+    "KB-MDN-503"
+  ],
+  "RNET-004": [
+    "KB-HTTPX-TIMEOUT"
+  ],
+  "RNET-005": [
+    "KB-HTTPX-DNS"
+  ],
+  "RNET-006": [
+    "KB-HTTPX-TLS"
+  ],
+  "RNET-007": [
+    "KB-SEC-SSRF"
+  ],
+  "RNET-008": [
+    "KB-HTTPX-TIMEOUT"
+  ],
+  "RNET-009": [],
+  "RNET-010": [
+    "KB-MDN-502"
+  ],
+  "RAG-001": [
+    "KB-MDN-401"
+  ],
+  "RAG-002": [
+    "KB-MDN-404"
+  ],
+  "RAG-003": [],
+  "RAG-004": [],
+  "RAG-005": [
+    "KB-CORS"
+  ],
+  "RAG-006": [
+    "KB-MDN-401",
+    "KB-SEC-INJECT"
+  ],
+  "RAG-007": [
+    "KB-MDN-401"
+  ],
+  "RAG-008": [
+    "KB-MDN-401"
+  ],
+  "RAG-009": [
+    "KB-MDN-400"
+  ],
+  "RAG-010": [
+    "KB-MDN-301"
+  ]
+}

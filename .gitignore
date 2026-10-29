@@ -1,0 +1,12 @@
+.venv/
+.node/
+__pycache__/
+*.pyc
+.env
+node_modules/
+dist/
+data/*.npy
+data/*.npz
+data/raw/
+eval/results/*.json
+demo-backup.mp4

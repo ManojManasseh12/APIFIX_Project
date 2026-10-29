@@ -1,0 +1,196 @@
+# APIFix AI
+
+**Test APIs. Find evidence. Understand failures. Verify fixes.**
+
+APIFix AI is a documentation-grounded API debugging assistant. It sends a real request, captures the observation, retrieves relevant documentation, streams a diagnosis with citations, suggests a patch, and retests only after approval.
+
+This repository is the working scaffold for the 5-day plan. It is deliberately a vertical slice, not a production service.
+
+## What works
+
+- Mock API with deterministic 401/403/404/405/410/413/415/422/429/500/502/503/timeout/redirect/SSRF behavior.
+- HTTPX tester with error classification.
+- Secret redaction and SSRF allowlist.
+- Local retrieval (MiniLM + NumPy) and Supabase pgvector retrieval.
+- Gemini → Groq → Mistral fallback adapters.
+- SSE diagnosis endpoint with citations and a JSON patch.
+- React UI for request, observation, diagnosis, citations, and retest diff.
+- 50 evaluation request fixtures and an evidence map.
+- Retrieval evaluation harness.
+
+## Verified baseline
+
+Measured on 2026-10-29 with the local NumPy retriever and the 22-chunk seed index:
+
+| Check | Command | Result |
+|---|---|---|
+| Security tests | `cd backend && pytest -q` | 10 passed |
+| Mock API smoke test | `curl` against `:8001` | 401, 200, 422, 201, 307 as expected |
+| Backend smoke test | `/api/test` against `:8000` | 401 observation, approval gate 403, SSRF blocked |
+| Retrieval eval (`dev`) | `python eval/retrieval_eval.py dev` | 35 cases, Recall@5 **1.0**, MRR **0.829** |
+| End-to-end eval (`dev`) | `python eval/run_eval.py dev` | 34 retrieval cases, Recall@5 **1.0**, MRR **0.77** |
+| Abstention (`dev`) | included above | 2/2 correct, 0 errors, 2 skipped |
+
+Treat these as directional. The corpus is small and the mock API is deterministic.
+
+### Not yet verified here
+
+- **LLM diagnosis** — no Gemini/Groq/Mistral key is configured, so streaming and patch extraction are untested end to end.
+- **Frontend** — `node`/`npm` are not installed in this environment; the React app has not been installed, type-checked, or run.
+- **Supabase pgvector** — no project is configured, so only the local retriever was exercised.
+- **Network-dependent cases** — DNS/TLS fixtures are skipped offline.
+- **Git** — `git` is not installed, so the scaffold is not committed.
+
+## What is not finished
+
+- The evaluation runner currently scores **retrieval only**; diagnosis correctness, citation accuracy, unsupported claims, and retest scoring are the next step.
+- The seed knowledge base has 22 starter chunks. Replace them with real source excerpts and add the rest of the 60–100 chunk set.
+- `eval/evidence_map.json` is a starting map; refine it after ingestion.
+- Playwright/CORS evidence is intentionally not implemented.
+- No production auth, multi-tenancy, or deployment hardening.
+
+## Deliverables
+
+| File | Purpose |
+|---|---|
+| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_5_Day_Plan.md` | Condensed 5-day plan |
+| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_5_Day_Plan.pdf` | 18-page A4 plan (verified render) |
+| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_5_Day_Plan.docx` | Editable plan |
+| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_Full_Process_Guide.md` | 12-phase build runbook |
+| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_Full_Process_Guide.pdf` | 75-page A4 runbook (verified render) |
+| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_Full_Process_Guide.docx` | Editable runbook |
+
+Copies of the Markdown live in `docs/`. Regenerate the PDF/DOCX with `docs/md_to_html.py` plus LibreOffice:
+
+```bash
+python docs/md_to_html.py docs/APIFix_AI_Full_Process_Guide.md docs/APIFix_AI_Full_Process_Guide.html
+libreoffice --headless --convert-to pdf docs/APIFix_AI_Full_Process_Guide.html
+libreoffice --headless --convert-to 'docx:MS Word 2007 XML' docs/APIFix_AI_Full_Process_Guide.html
+```
+
+## Repository layout
+
+```text
+backend/app/        FastAPI app: tester, retriever, LLM, security, routes
+backend/mock_api/   deterministic local API
+backend/scripts/    provider check, ingestion, local index, scenario runner
+backend/tests/      security tests
+data/               datasets + knowledge-base seed
+eval/               case requests, evidence map, evaluation runner
+frontend/           React + Vite + Tailwind UI
+docs/               plan, process guide, demo script, limitations
+```
+
+## Quick start
+
+### 1. Python environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+cp .env.example .env
+```
+
+If `python3 -m venv` fails with `ensurepip is not available`, install `python3-venv` (or `python3.12-venv`). This machine had no `pip` and no `venv` support, so the environment was built with `python3 -m venv --without-pip .venv` followed by `get-pip.py`.
+
+### 2. Build the local retrieval index
+
+This works without Supabase:
+
+```bash
+python backend/scripts/build_local_index.py
+```
+
+The script reads `data/kb_seed.csv` and writes `data/kb_embeddings.npy` and `data/kb_meta.json`.
+
+### 3. Run the mock API
+
+From the repository root:
+
+```bash
+python run_mock.py
+```
+
+### 4. Run the backend
+
+From the repository root:
+
+```bash
+python run_api.py
+```
+
+### 5. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+### 6. Add provider keys
+
+Edit `.env`:
+
+```bash
+GEMINI_API_KEY=...
+GEMINI_MODEL=...
+GROQ_API_KEY=...
+GROQ_MODEL=...
+MISTRAL_API_KEY=...
+MISTRAL_MODEL=...
+```
+
+Verify them:
+
+```bash
+python backend/scripts/check_providers.py
+```
+
+If no provider is configured, `/api/diagnose` returns a clear `no_providers_configured` error. `/api/test` still works.
+
+## Demo request
+
+In the UI:
+
+- Method: `GET`
+- URL: `http://localhost:8001/v1/profile`
+- Headers: `Accept: application/json`
+- Question: `Why does this request return 401?`
+
+Expected: observation `401`, cited MDN 401 evidence, a patch that adds `Authorization: Bearer valid-user-token`, and a retest to `200`.
+
+## Supabase (optional but required for the deck's architecture)
+
+1. Create a project and enable the `vector` extension.
+2. Run the schema in `docs/ARCHITECTURE.md`.
+3. Set `DATABASE_URL` and `RETRIEVAL_BACKEND=supabase`.
+4. Ingest:
+
+```bash
+python backend/scripts/ingest.py
+```
+
+If Supabase is unavailable, set `RETRIEVAL_BACKEND=local`; the local index is enough for the demo.
+
+## Tests
+
+```bash
+cd backend
+pytest -q
+```
+
+## Evaluation
+
+Start the mock API, then:
+
+```bash
+python eval/run_eval.py dev
+python eval/run_eval.py heldout
+```
+
+---
+
+**Read next:** `docs/APIFix_AI_5_Day_Plan.md` for the schedule and `docs/APIFix_AI_Full_Process_Guide.md` for the complete build runbook.
