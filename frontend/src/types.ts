@@ -18,6 +18,8 @@ export type Observation = {
   error_type: string | null;
   error_message: string | null;
   redirect_location: string | null;
+  size_kb?: string;
+  cors_status?: string;
 };
 
 export type Citation = {
@@ -45,5 +47,22 @@ export type RetestResult = {
     latency_after_ms: number;
     body_changed: boolean;
     verdict: string;
+  };
+};
+
+export type ScenarioPreset = {
+  id: string;
+  collection: string;
+  name: string;
+  statusBadge: number;
+  method: string;
+  path: string;
+  spec: RequestSpec;
+  sampleObservation?: Observation;
+  sampleDiagnosis?: {
+    whatWentWrong: string;
+    suggestedFix: string;
+    patch: Patch;
+    sources: { id: string; label: string; url?: string }[];
   };
 };

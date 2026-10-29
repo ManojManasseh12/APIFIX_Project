@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import routes_diagnose, routes_health, routes_retest, routes_test
-from app.config import settings
+from app.core.config import settings
+from app.routes import routes_diagnose, routes_health, routes_retest, routes_test
 
 app = FastAPI(title="APIFix AI", version="0.1.0")
 
