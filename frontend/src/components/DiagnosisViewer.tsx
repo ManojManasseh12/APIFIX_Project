@@ -45,6 +45,7 @@ export function DiagnosisViewer({
     setTimeout(() => setCopied(false), 2000);
   }
 
+
   // Determine stage pill states
   const isTested = status === "done" || Boolean(whatWentWrong);
   const isRetrieved = (status === "done" && sourceCount > 0) || Boolean(whatWentWrong);
@@ -166,6 +167,7 @@ export function DiagnosisViewer({
           </div>
         )}
       </div>
+      
 
       {/* ACTION BUTTONS & FOOTER */}
       <div className="mt-6 pt-2">
@@ -191,6 +193,7 @@ export function DiagnosisViewer({
         </p>
       </div>
     </section>
+    
   );
 }
 

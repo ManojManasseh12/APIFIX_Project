@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { Header } from "./components/Header";
+import type { WorkspaceTab } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { RequestBuilder } from "./components/RequestBuilder";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { DiagnosisViewer } from "./components/DiagnosisViewer";
+import { AskPanel } from "./components/AskPanel";
 import { PRESETS } from "./data/presets";
 import { streamDiagnosis } from "./lib/sse";
 import type { Citation, Observation, Patch, RequestSpec, RetestResult, ScenarioPreset } from "./types";
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("diagnose");
   const [presets, setPresets] = useState<ScenarioPreset[]>(PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
   const [activeCollection, setActiveCollection] = useState<string>("github");
@@ -189,6 +192,8 @@ export default function App() {
     }
     navigator.clipboard.writeText(curl);
   }
+  
+  <div key={activeTab} className="fade-in"> ...tab content... </div>
 
   // Import OpenAPI file
   function handleImportOpenAPI(file: File) {
@@ -226,53 +231,56 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f8fafc] text-slate-800 antialiased">
+    <div className="app-shell flex min-h-screen flex-col text-slate-800 antialiased">
       {/* Top Header */}
-      <Header />
+      <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {/* Main 3-Column Workspace */}
       <main className="flex-1 p-5">
-        <div className="mx-auto grid max-w-[1550px] grid-cols-1 gap-5 lg:grid-cols-12">
-          {/* Left Column: Collections & Recent Tests (approx 3 cols) */}
-          <div className="lg:col-span-3">
-            <Sidebar
-              presets={presets}
-              selectedPresetId={selectedPresetId}
-              onSelectPreset={handleSelectPreset}
-              activeCollection={activeCollection}
-              onSelectCollection={setActiveCollection}
-              onImportOpenAPI={handleImportOpenAPI}
-            />
-          </div>
+        {activeTab === "diagnose" ? (
+          <div className="mx-auto grid max-w-[1550px] grid-cols-1 gap-5 lg:grid-cols-12">
+            {/* Left Column: Collections & Recent Tests (approx 3 cols) */}
+            <div className="lg:col-span-3">
+              <Sidebar
+                presets={presets}
+                selectedPresetId={selectedPresetId}
+                onSelectPreset={handleSelectPreset}
+                activeCollection={activeCollection}
+                onSelectCollection={setActiveCollection}
+                onImportOpenAPI={handleImportOpenAPI}
+              />
+            </div>
 
-          {/* Middle Column: Request & Response (approx 5 cols) */}
-          <div className="space-y-5 lg:col-span-5">
-            <RequestBuilder
-              spec={spec}
-              onChangeSpec={setSpec}
-              onRunTest={handleRunTest}
-              busy={status === "running"}
-            />
-            <ResponseViewer observation={observation} isMockData={isMockData} />
-          </div>
+            {/* Middle Column: Request & Response (approx 5 cols) */}
+            <div className="space-y-5 lg:col-span-5">
+              <RequestBuilder
+                spec={spec}
+                onChangeSpec={setSpec}
+                onRunTest={handleRunTest}
+                busy={status === "running"}
+              />
+              <ResponseViewer observation={observation} isMockData={isMockData} />
+            </div>
 
-          {/* Right Column: AI Diagnosis (approx 4 cols) */}
-          <div className="lg:col-span-4">
-            <DiagnosisViewer
-              whatWentWrong={whatWentWrong}
-              suggestedFix={suggestedFix}
-              sources={sources}
-              citations={citations}
-              patch={patch}
-              status={status}
-              error={error}
-              retestResult={retestResult}
-              onApplyFix={handleApplyFix}
-              onCopyCurl={handleCopyCurl}
-              retesting={retesting}
-            />
+            {/* Right Column: AI Diagnosis (approx 4 cols) */}
+            <div className="lg:col-span-4">
+              <DiagnosisViewer
+                whatWentWrong={whatWentWrong}
+                suggestedFix={suggestedFix}
+                sources={sources}
+                citations={citations}
+                patch={patch}
+                status={status}
+                error={error}
+                retestResult={retestResult}
+                onApplyFix={handleApplyFix}
+                onCopyCurl={handleCopyCurl}
+                retesting={retesting}
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <AskPanel />
+        )}
       </main>
     </div>
   );

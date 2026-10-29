@@ -1,4 +1,17 @@
-export function Header() {
+export type WorkspaceTab = "diagnose" | "ask";
+
+export function Header({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: WorkspaceTab;
+  onTabChange: (tab: WorkspaceTab) => void;
+}) {
+  const tabs: { id: WorkspaceTab; label: string }[] = [
+    { id: "diagnose", label: "Diagnose" },
+    { id: "ask", label: "Ask API" },
+  ];
+
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-3">
       {/* Brand */}
@@ -29,6 +42,23 @@ export function Header() {
         </div>
       </div>
 
+      {/* Workspace tabs */}
+      <nav className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
+              activeTab === tab.id
+                ? "bg-white text-teal-700 shadow-xs"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
       {/* Status Badges */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
@@ -44,4 +74,3 @@ export function Header() {
     </header>
   );
 }
-

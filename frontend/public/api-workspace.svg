@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" stroke="#8eb9c2" stroke-opacity=".2" stroke-width="1"/>
+      <circle cx="1" cy="1" r="1.5" fill="#438c98" fill-opacity=".24"/>
+    </pattern>
+    <linearGradient id="trace" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#168b91" stop-opacity=".44"/>
+      <stop offset="1" stop-color="#557b9b" stop-opacity=".25"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#grid)" d="M0 0h1600v1000H0z"/>
+  <g stroke="url(#trace)" stroke-width="2">
+    <path d="M0 175h110l34-34h136l42 42h112"/>
+    <path d="M0 215h82l45 45h108"/>
+    <path d="M1600 130h-132l-44 44h-112l-38 38h-96"/>
+    <path d="M1600 184h-76l-36 36h-82"/>
+    <path d="M0 780h132l40-40h82l54-54h102"/>
+    <path d="M0 838h74l48-48h76"/>
+    <path d="M1600 756h-128l-48 48h-126l-38 38h-86"/>
+    <path d="M1600 820h-66l-44 44h-72"/>
+  </g>
+  <g fill="#f7fafc" stroke="#368e97" stroke-opacity=".42" stroke-width="2">
+    <circle cx="286" cy="141" r="7"/><circle cx="402" cy="183" r="6"/>
+    <circle cx="253" cy="260" r="6"/><circle cx="1176" cy="212" r="7"/>
+    <circle cx="1388" cy="174" r="6"/><circle cx="408" cy="686" r="7"/>
+    <circle cx="328" cy="740" r="6"/><circle cx="1172" cy="842" r="7"/>
+    <circle cx="1428" cy="804" r="6"/><circle cx="1534" cy="864" r="6"/>
+  </g>
+  <g fill="#347d88" fill-opacity=".2" font-family="monospace" font-size="13">
+    <text x="80" y="116">REQUEST / RESPONSE</text>
+    <text x="1260" y="112">STATUS: 200 OK</text>
+    <text x="82" y="914">TRACE_ID  .  7F3A</text>
+    <text x="1260" y="920">API_DIAGNOSTICS</text>
+  </g>
+</svg>

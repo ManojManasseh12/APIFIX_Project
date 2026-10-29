@@ -119,10 +119,28 @@ async def diagnose(spec: RequestSpec, request: Request):
             context = build_context(spec, observation, retrieval)
             buffer: list[str] = []
             provider_name = None
+            active_provider = None
+            skipped: list[tuple[str, str, bool, bool]] = []
+
+            def on_skip(
+                name: str, reason: str, has_next: bool, output_started: bool
+            ) -> None:
+                skipped.append((name, reason, has_next, output_started))
+
             try:
                 async for provider_name, token in stream_with_fallback(
-                    providers, SYSTEM_PROMPT, context
+                    providers, SYSTEM_PROMPT, context, on_skip=on_skip
                 ):
+                    while skipped:
+                        name, reason, has_next, output_started = skipped.pop(0)
+                        if has_next:
+                            yield sse(
+                                "provider_fallback",
+                                {"from": name, "reason": reason},
+                            )
+                    if provider_name != active_provider:
+                        active_provider = provider_name
+                        yield sse("provider", {"name": provider_name})
                     if await request.is_disconnected():
                         return
                     buffer.append(token)

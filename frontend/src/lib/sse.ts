@@ -1,8 +1,9 @@
-export async function streamDiagnosis(
+export async function streamSSE(
+  url: string,
   body: unknown,
   onEvent: (event: string, data: any) => void
 ) {
-  const response = await fetch("/api/diagnose", {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -34,4 +35,18 @@ export async function streamDiagnosis(
       if (data) onEvent(event, JSON.parse(data));
     }
   }
+}
+
+export async function streamDiagnosis(
+  body: unknown,
+  onEvent: (event: string, data: any) => void
+) {
+  return streamSSE("/api/diagnose", body, onEvent);
+}
+
+export async function streamAsk(
+  body: unknown,
+  onEvent: (event: string, data: any) => void
+) {
+  return streamSSE("/api/ask", body, onEvent);
 }

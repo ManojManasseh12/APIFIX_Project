@@ -1,4 +1,4 @@
-def build_context(spec, obs, retrieval) -> str:
+def _evidence_block(retrieval) -> str:
     evidence = []
     for chunk in retrieval.chunks:
         evidence.append(
@@ -9,7 +9,10 @@ def build_context(spec, obs, retrieval) -> str:
                 text=chunk.get("chunk_text", "")[:1200],
             )
         )
+    return "\n\n".join(evidence) if evidence else "(no matching documentation retrieved)"
 
+
+def build_context(spec, obs, retrieval) -> str:
     observed = {
         "method": spec.method,
         "url": str(spec.url),
@@ -23,6 +26,20 @@ def build_context(spec, obs, retrieval) -> str:
     return (
         f"USER QUESTION:\n{spec.question or 'Why did this request fail?'}\n\n"
         f"OBSERVED REQUEST/RESPONSE (redacted):\n{observed}\n\n"
-        "EVIDENCE:\n" + "\n\n".join(evidence)
+        "EVIDENCE:\n" + _evidence_block(retrieval)
     )
 
+
+def build_ask_context(question: str, history, retrieval) -> str:
+    turns = []
+    for message in list(history)[-4:]:
+        role = getattr(message, "role", "user")
+        content = getattr(message, "content", "")[:1500]
+        turns.append(f"{role.upper()}: {content}")
+    conversation = "\n".join(turns) if turns else "(new conversation)"
+
+    return (
+        f"CONVERSATION:\n{conversation}\n\n"
+        f"CURRENT QUESTION:\n{question}\n\n"
+        "EVIDENCE:\n" + _evidence_block(retrieval)
+    )

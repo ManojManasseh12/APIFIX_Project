@@ -42,3 +42,13 @@ class Diagnosis(BaseModel):
     provider: str | None = None
     confidence: str | None = None
 
+
+class AskMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=4000)
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    history: list[AskMessage] = Field(default_factory=list, max_length=8)
+

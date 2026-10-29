@@ -30,6 +30,14 @@ export type Citation = {
   page?: number;
 };
 
+export type AskMessage = {
+  role: "user" | "assistant";
+  content: string;
+  citations?: Citation[];
+  provider?: string;
+  insufficient?: boolean;
+};
+
 export type Patch = {
   set_headers: Record<string, string>;
   remove_headers: string[];

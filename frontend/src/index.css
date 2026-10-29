@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+.app-shell {
+	background-color: #f7fafc;
+	background-image:
+		linear-gradient(rgba(247, 250, 252, 0.66), rgba(247, 250, 252, 0.66)),
+		url("/api-workspace.svg");
+	background-position: center;
+	background-size: cover;
+}
+body {
+  background-color: #F5F7FB;
+  background-image:
+    radial-gradient(60rem 30rem at 12% -10%, rgba(33, 190, 205, .14), transparent 60%),
+    radial-gradient(50rem 28rem at 92% -5%, rgba(36, 87, 184, .12), transparent 60%),
+    radial-gradient(rgba(16, 24, 40, .07) 1px, transparent 1px);
+  background-size: auto, auto, 24px 24px;
+  background-attachment: fixed;
+}
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fade-in .18s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }

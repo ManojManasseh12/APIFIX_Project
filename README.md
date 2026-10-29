@@ -12,9 +12,10 @@ This repository is the working scaffold for the 5-day plan. It is deliberately a
 - HTTPX tester with error classification.
 - Secret redaction and SSRF allowlist.
 - Local retrieval (MiniLM + NumPy) and Supabase pgvector retrieval.
-- Gemini → Groq → Mistral fallback adapters.
+- Gemini → Groq → Mistral fallback adapters with quota-aware model/key switching.
 - SSE diagnosis endpoint with citations and a JSON patch.
-- React UI for request, observation, diagnosis, citations, and retest diff.
+- **Ask API tab**: grounded, streaming Q&A for API concepts, doubts, and fixes.
+- React UI for request, observation, diagnosis, citations, retest diff, and API Q&A.
 - 50 evaluation request fixtures and an evidence map.
 - Retrieval evaluation harness.
 
@@ -35,11 +36,10 @@ Treat these as directional. The corpus is small and the mock API is deterministi
 
 ### Not yet verified here
 
-- **LLM diagnosis** — no Gemini/Groq/Mistral key is configured, so streaming and patch extraction are untested end to end.
-- **Frontend** — `node`/`npm` are not installed in this environment; the React app has not been installed, type-checked, or run.
+- **Live LLM diagnosis** — provider keys are configured locally; streaming works, but quota fallback depends on each provider's current free-tier limits.
+- **Frontend** — the React app is type-checked and built, but has not been exercised in a browser by the automated tests.
 - **Supabase pgvector** — no project is configured, so only the local retriever was exercised.
 - **Network-dependent cases** — DNS/TLS fixtures are skipped offline.
-- **Git** — `git` is not installed, so the scaffold is not committed.
 
 ## What is not finished
 
@@ -136,12 +136,19 @@ Edit `.env`:
 
 ```bash
 GEMINI_API_KEY=...
-GEMINI_MODEL=...
+GEMINI_MODEL=gemini-flash-latest,gemini-3.5-flash
 GROQ_API_KEY=...
-GROQ_MODEL=...
+GROQ_MODEL=openai/gpt-oss-120b,qwen/qwen3.8-27b
 MISTRAL_API_KEY=...
-MISTRAL_MODEL=...
+MISTRAL_MODEL=mistral-small-latest
+PROVIDER_ORDER=gemini,groq,mistral
 ```
+
+`GEMINI_MODEL`, `GROQ_MODEL`, and `MISTRAL_MODEL` accept comma-separated
+models. Models/providers are streamed in `PROVIDER_ORDER`; if one hits a rate
+limit or exhausted quota, the backend automatically retries the next model or
+provider before any token is sent. Add `GEMINI_API_KEYS`, `GROQ_API_KEYS`, or
+`MISTRAL_API_KEYS` (comma-separated) to rotate across multiple keys too.
 
 Verify them:
 
@@ -161,6 +168,24 @@ In the UI:
 - Question: `Why does this request return 401?`
 
 Expected: observation `401`, cited MDN 401 evidence, a patch that adds `Authorization: Bearer valid-user-token`, and a retest to `200`.
+
+### Ask API assistant
+
+Use the **Ask API** tab for general API questions. The same retriever provides
+grounded sources and the same provider fallback keeps the answer streaming if a
+model is rate-limited.
+
+Token usage is deliberately capped: Ask sends only the **last 4 messages** as
+conversation context, retrieves **4 evidence chunks**, and asks the model to keep
+answers under **200 words**. Use **New chat** to start fresh and avoid sending
+old history.
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What is idempotency and why do POST retries create duplicates?","history":[]}'
+```
+
 
 ## Supabase (optional but required for the deck's architecture)
 
