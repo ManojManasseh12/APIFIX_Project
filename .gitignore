@@ -3,6 +3,8 @@
 __pycache__/
 *.pyc
 .env
+backend/uploads/
+backend/data/chroma/
 node_modules/
 dist/
 data/*.npy

@@ -3,7 +3,23 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from chunk_text import token_count
+try:
+    from .chunk_text import token_count
+except ImportError:
+    from chunk_text import token_count
+
+
+def _read_spec(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as file:
+        if path.suffix.lower() in {".yaml", ".yml"}:
+            import yaml
+
+            spec = yaml.safe_load(file)
+        else:
+            spec = json.load(file)
+    if not isinstance(spec, dict):
+        raise ValueError(f"{path} does not contain an OpenAPI object")
+    return spec
 
 
 def extract_schema_summary(schema: dict[str, Any]) -> str:
@@ -84,8 +100,7 @@ def operation_text(method: str, path: str, op: dict[str, Any], spec_title: str) 
 
 def parse_openapi(spec_path: str, license_name: str = "Apache-2.0") -> list[dict[str, Any]]:
     path_obj = Path(spec_path)
-    with open(path_obj, "r", encoding="utf-8") as f:
-        spec = json.load(f)
+    spec = _read_spec(path_obj)
 
     info = spec.get("info", {})
     title = info.get("title", path_obj.stem)

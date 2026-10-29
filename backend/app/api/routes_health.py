@@ -1,8 +1,3 @@
-from fastapi import APIRouter
+from app.routes.routes_health import health, router  # noqa: F401
 
-router = APIRouter()
-
-
-@router.get("/health")
-def health():
-    return {"ok": True, "service": "apifix-ai"}
+__all__ = ["health", "router"]

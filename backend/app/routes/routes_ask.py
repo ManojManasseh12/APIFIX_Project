@@ -4,9 +4,9 @@ from fastapi.responses import StreamingResponse
 from app.ai.context import build_ask_context
 from app.ai.llm import get_providers, stream_with_fallback
 from app.ai.prompts import ASK_SYSTEM_PROMPT, CITATION_RE
+from app.ai.rag.pipeline import retrieve_for_api
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
-from app.rag.retriever import get_retriever
 from app.routes.sse import sse
 
 router = APIRouter()
@@ -22,7 +22,7 @@ async def ask(payload: AskRequest, request: Request):
                 return
 
             try:
-                retrieval = get_retriever().search(question, api_name=None, path="")
+                retrieval = await retrieve_for_api(question, api_name=None, path="")
             except Exception as exc:
                 yield sse(
                     "error",

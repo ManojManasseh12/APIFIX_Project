@@ -13,7 +13,7 @@ from app.ai.context import build_context
 from app.ai.llm import get_providers, stream_with_fallback
 from app.ai.prompts import CITATION_RE, PATCH_RE, SYSTEM_PROMPT
 from app.rag.query import build_query
-from app.rag.retriever import get_retriever
+from app.ai.rag.pipeline import retrieve_for_api
 from app.core.tester import execute
 
 router = APIRouter()
@@ -35,8 +35,10 @@ async def diagnose(spec: RequestSpec, request: Request):
             yield sse("observation", observation.model_dump(mode="json"))
 
             try:
-                retrieval = get_retriever().search(
-                    build_query(spec, observation), api_name=None, path=str(spec.url)
+                retrieval = await retrieve_for_api(
+                    build_query(spec, observation),
+                    api_name=None,
+                    path=str(spec.url),
                 )
             except Exception as exc:
                 yield sse(
@@ -120,19 +122,19 @@ async def diagnose(spec: RequestSpec, request: Request):
             buffer: list[str] = []
             provider_name = None
             active_provider = None
-            skipped: list[tuple[str, str, bool, bool]] = []
+            skipped: list[tuple[str, str, bool]] = []
 
             def on_skip(
-                name: str, reason: str, has_next: bool, output_started: bool
+                name: str, reason: str, has_next: bool, _output_started: bool
             ) -> None:
-                skipped.append((name, reason, has_next, output_started))
+                skipped.append((name, reason, has_next))
 
             try:
                 async for provider_name, token in stream_with_fallback(
                     providers, SYSTEM_PROMPT, context, on_skip=on_skip
                 ):
                     while skipped:
-                        name, reason, has_next, output_started = skipped.pop(0)
+                        name, reason, has_next = skipped.pop(0)
                         if has_next:
                             yield sse(
                                 "provider_fallback",
@@ -198,4 +200,3 @@ async def diagnose(spec: RequestSpec, request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-

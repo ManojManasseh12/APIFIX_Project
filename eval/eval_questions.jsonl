@@ -1,0 +1,50 @@
+{"case_id":"AUTH-001","split":"dev","question":"GET /v1/profile HTTP 401 Authorization header omitted","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-002","split":"dev","question":"GET /v1/profile HTTP 401 Header uses Token scheme instead of Bearer","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-003","split":"heldout","question":"GET /v1/profile HTTP 401 Expired JWT sent (exp claim in past)","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-004","split":"dev","question":"GET /v1/profile HTTP 401 Token with invalid signature","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-005","split":"dev","question":"GET /v1/admin/users HTTP 403 Valid user token without admin role","expected_chunk_ids":["KB-MDN-403"]}
+{"case_id":"AUTH-006","split":"dev","question":"GET /v1/profile HTTP 401 API key sent in X-Api-Key instead of Authorization","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-007","split":"dev","question":"POST /v1/orders HTTP 401 Basic auth sent to Bearer-only endpoint","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-008","split":"dev","question":"GET /v1/reports HTTP 403 Token lacks read:reports scope","expected_chunk_ids":["KB-MDN-403"]}
+{"case_id":"AUTH-009","split":"heldout","question":"GET /v1/profile HTTP 401 Token has trailing newline copied from console","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"AUTH-010","split":"heldout","question":"DELETE /v1/orders/42 HTTP 403 Account suspended by administrator","expected_chunk_ids":["KB-MDN-403"]}
+{"case_id":"END-001","split":"dev","question":"GET /v1/profle HTTP 404 Typo in path segment","expected_chunk_ids":["KB-MDN-404"]}
+{"case_id":"END-002","split":"dev","question":"GET /v1/orders/9999 HTTP 404 Resource ID does not exist","expected_chunk_ids":["KB-MDN-404"]}
+{"case_id":"END-003","split":"dev","question":"POST /v1/profile HTTP 405 POST sent to read-only route","expected_chunk_ids":["KB-MDN-405"]}
+{"case_id":"END-004","split":"dev","question":"GET /v2/profile HTTP 404 Version prefix v2 not deployed","expected_chunk_ids":[]}
+{"case_id":"END-005","split":"dev","question":"PUT /v1/orders/42 HTTP 405 Client uses PUT where API expects PATCH","expected_chunk_ids":["KB-MDN-405"]}
+{"case_id":"END-006","split":"dev","question":"GET /orders HTTP 404 Missing /v1 prefix","expected_chunk_ids":["KB-MDN-404"]}
+{"case_id":"END-007","split":"heldout","question":"GET /v1/orders/ HTTP 307 Trailing slash causes redirect","expected_chunk_ids":["KB-MDN-307"]}
+{"case_id":"END-008","split":"dev","question":"DELETE /v1/reports HTTP 405 Method not allowed on read-only resource","expected_chunk_ids":["KB-MDN-405"]}
+{"case_id":"END-009","split":"dev","question":"GET /V1/Products HTTP 404 Path casing differs from docs","expected_chunk_ids":["KB-MDN-404"]}
+{"case_id":"END-010","split":"heldout","question":"GET /v1/orders/42/items HTTP 410 Deprecated sub-route removed","expected_chunk_ids":["KB-MDN-410"]}
+{"case_id":"VAL-001","split":"dev","question":"POST /v1/orders HTTP 422 Required field items missing","expected_chunk_ids":["KB-MDN-422"]}
+{"case_id":"VAL-002","split":"dev","question":"POST /v1/orders HTTP 422 quantity sent as string two","expected_chunk_ids":["KB-MDN-422"]}
+{"case_id":"VAL-003","split":"dev","question":"POST /v1/orders HTTP 400 Invalid JSON with trailing comma","expected_chunk_ids":["KB-MDN-400"]}
+{"case_id":"VAL-004","split":"dev","question":"POST /v1/orders HTTP 415 JSON body sent as text/plain","expected_chunk_ids":["KB-MDN-415"]}
+{"case_id":"VAL-005","split":"dev","question":"POST /v1/orders HTTP 415 Content-Type header missing","expected_chunk_ids":["KB-MDN-415"]}
+{"case_id":"VAL-006","split":"dev","question":"POST /v1/orders HTTP 422 quantity is negative","expected_chunk_ids":["KB-MDN-422"]}
+{"case_id":"VAL-007","split":"heldout","question":"POST /v1/users HTTP 422 Malformed email address","expected_chunk_ids":["KB-MDN-422"]}
+{"case_id":"VAL-008","split":"dev","question":"GET /v1/orders?page=abc HTTP 422 Non-integer page parameter","expected_chunk_ids":["KB-MDN-422"]}
+{"case_id":"VAL-009","split":"dev","question":"POST /v1/orders HTTP 413 Body exceeds size limit","expected_chunk_ids":["KB-MDN-413"]}
+{"case_id":"VAL-010","split":"heldout","question":"POST /v1/orders HTTP 422 status set to archived (not allowed)","expected_chunk_ids":["KB-MDN-422"]}
+{"case_id":"RNET-001","split":"dev","question":"GET /v1/search HTTP 429 Too many requests in short window","expected_chunk_ids":["KB-MDN-429"]}
+{"case_id":"RNET-002","split":"dev","question":"GET /v1/reports HTTP 500 Server internal error","expected_chunk_ids":["KB-MDN-500"]}
+{"case_id":"RNET-003","split":"dev","question":"GET /v1/reports HTTP 503 Maintenance window with Retry-After","expected_chunk_ids":["KB-MDN-503"]}
+{"case_id":"RNET-004","split":"dev","question":"GET /v1/slow-report HTTP timeout Server takes 15 s; client timeout 5 s","expected_chunk_ids":["KB-HTTPX-TIMEOUT"]}
+{"case_id":"RNET-005","split":"heldout","question":"GET https://nonexistent.invalid/api HTTP dns_error Host name does not resolve","expected_chunk_ids":["KB-HTTPX-DNS"]}
+{"case_id":"RNET-006","split":"dev","question":"GET https://expired-cert.example.test/ HTTP tls_error Expired TLS certificate","expected_chunk_ids":["KB-HTTPX-TLS"]}
+{"case_id":"RNET-007","split":"dev","question":"GET http://localhost:9/ HTTP blocked_by_policy Request to localhost blocked by SSRF policy","expected_chunk_ids":["KB-SEC-SSRF"]}
+{"case_id":"RNET-008","split":"heldout","question":"POST /v1/orders HTTP timeout Timeout on state-changing POST","expected_chunk_ids":["KB-HTTPX-TIMEOUT"]}
+{"case_id":"RNET-009","split":"dev","question":"POST ai:/diagnose HTTP 429 Primary AI provider returns 429","expected_chunk_ids":[]}
+{"case_id":"RNET-010","split":"dev","question":"GET /v1/orders HTTP 502 Proxy returns 502 with HTML body","expected_chunk_ids":["KB-MDN-502"]}
+{"case_id":"RAG-001","split":"dev","question":"GET /v1/profile HTTP 401 Query about 401 ******","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"RAG-002","split":"dev","question":"GET /v1/orders/9999 HTTP 404 Query about 404 for missing resource","expected_chunk_ids":["KB-MDN-404"]}
+{"case_id":"RAG-003","split":"dev","question":"GET /v2/profile HTTP 404 Retrieved chunk is from v1 docs but error is v2","expected_chunk_ids":[]}
+{"case_id":"RAG-004","split":"heldout","question":"GET /v1/x HTTP 500 Vendor error code X-ERR-7731 has no docs","expected_chunk_ids":[]}
+{"case_id":"RAG-005","split":"dev","question":"GET /v1/profile HTTP 200 User reports CORS error, test ran server-side","expected_chunk_ids":["KB-CORS"]}
+{"case_id":"RAG-006","split":"dev","question":"GET /v1/profile HTTP 401 Retrieved chunk contains injected instruction","expected_chunk_ids":["KB-MDN-401","KB-SEC-INJECT"]}
+{"case_id":"RAG-007","split":"heldout","question":"GET /v1/profile HTTP 401 Response body contains live API key","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"RAG-008","split":"dev","question":"GET /v1/profile HTTP 401 401 with cookie-based session","expected_chunk_ids":["KB-MDN-401"]}
+{"case_id":"RAG-009","split":"dev","question":"GET /v1/orders?limit=500 HTTP 400 limit above documented maximum","expected_chunk_ids":["KB-MDN-400"]}
+{"case_id":"RAG-010","split":"heldout","question":"GET http://api.example.test/v1/profile HTTP 301 Redirect from http to https","expected_chunk_ids":["KB-MDN-301"]}

@@ -12,27 +12,29 @@ This repository is the working scaffold for the 5-day plan. It is deliberately a
 - HTTPX tester with error classification.
 - Secret redaction and SSRF allowlist.
 - Local retrieval (MiniLM + NumPy) and Supabase pgvector retrieval.
+- Upload-based RAG ingestion with MiniLM embeddings, persistent ChromaDB, BM25 keyword search, and hybrid retrieval.
 - Gemini → Groq → Mistral fallback adapters with quota-aware model/key switching.
 - SSE diagnosis endpoint with citations and a JSON patch.
 - **Ask API tab**: grounded, streaming Q&A for API concepts, doubts, and fixes.
 - React UI for request, observation, diagnosis, citations, retest diff, and API Q&A.
 - 50 evaluation request fixtures and an evidence map.
-- Retrieval evaluation harness.
+- Dense/keyword/hybrid retrieval evaluation using `eval/eval_questions.jsonl`.
 
-## Verified baseline
+## Retrieval evaluation
 
-Measured on 2026-10-29 with the local NumPy retriever and the 22-chunk seed index:
+Measured on the `dev` split with a temporary Chroma collection seeded from
+`data/kb_chunks.jsonl`:
 
-| Check | Command | Result |
-|---|---|---|
-| Security tests | `cd backend && pytest -q` | 10 passed |
-| Mock API smoke test | `curl` against `:8001` | 401, 200, 422, 201, 307 as expected |
-| Backend smoke test | `/api/test` against `:8000` | 401 observation, approval gate 403, SSRF blocked |
-| Retrieval eval (`dev`) | `python eval/retrieval_eval.py dev` | 35 cases, Recall@5 **1.0**, MRR **0.829** |
-| End-to-end eval (`dev`) | `python eval/run_eval.py dev` | 34 retrieval cases, Recall@5 **1.0**, MRR **0.77** |
-| Abstention (`dev`) | included above | 2/2 correct, 0 errors, 2 skipped |
+| Mode | Recall@5 | MRR | Scored cases |
+|---|---:|---:|---:|
+| Dense | 1.000 | 0.690 | 35 |
+| Keyword | 0.614 | 0.375 | 35 |
+| Hybrid | 0.971 | 0.548 | 35 |
 
-Treat these as directional. The corpus is small and the mock API is deterministic.
+The corpus is small and the scores are directional. Run `python eval/run_eval.py
+--split dev` or `--split heldout` against the Chroma knowledge base after
+ingesting documents. Questions with no expected evidence are reported as
+abstentions and excluded from Recall@5/MRR averages.
 
 ### Not yet verified here
 
@@ -71,7 +73,10 @@ libreoffice --headless --convert-to 'docx:MS Word 2007 XML' docs/APIFix_AI_Full_
 ## Repository layout
 
 ```text
-backend/app/        FastAPI app: tester, retriever, LLM, security, routes
+backend/app/        FastAPI app: tester, retrievers, LLM, security, routes
+backend/app/ai/rag/ RAG loading, chunking, embeddings, ChromaDB, and pipeline
+backend/uploads/    Local uploaded documents (gitignored)
+backend/data/chroma/ Persistent ChromaDB files (gitignored)
 backend/mock_api/   deterministic local API
 backend/scripts/    provider check, ingestion, local index, scenario runner
 backend/tests/      security tests
@@ -103,6 +108,23 @@ python backend/scripts/build_local_index.py
 ```
 
 The script reads `data/kb_seed.csv` and writes `data/kb_embeddings.npy` and `data/kb_meta.json`.
+
+### 2a. Upload and index documents with ChromaDB
+
+The upload/ingest/search endpoints are available at both `/api/...` and their
+root paths. Allowed file types are PDF, JSON, YAML, JSONL, Markdown, and text;
+uploads are limited by `MAX_UPLOAD_MB`.
+
+```bash
+curl -F 'files=@data/kb_chunks.jsonl' http://127.0.0.1:8000/api/upload
+curl -X POST http://127.0.0.1:8000/api/ingest
+curl -X POST http://127.0.0.1:8000/api/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What does HTTP 401 mean?","mode":"hybrid","k":5}'
+```
+
+Configure `UPLOAD_DIR`, `CHROMA_DIR`, `EMBED_MODEL`, and `MAX_UPLOAD_MB` in
+`.env` to override the defaults.
 
 ### 3. Run the mock API
 
@@ -209,12 +231,16 @@ pytest -q
 
 ## Evaluation
 
-Start the mock API, then:
+After uploading and ingesting the corpus that corresponds to the labels:
 
 ```bash
-python eval/run_eval.py dev
-python eval/run_eval.py heldout
+python eval/run_eval.py --split dev
+python eval/run_eval.py --split heldout
 ```
+
+The runner reads `eval/eval_questions.jsonl` and prints Recall@5 and MRR for
+dense, keyword, and hybrid retrieval. An empty Chroma collection is reported
+as an error rather than producing misleading zero scores.
 
 ---
 
