@@ -116,8 +116,9 @@ export default function App() {
   }
 
   // Apply fix and re-run
-  async function handleApplyFix() {
-    if (!patch) return;
+  async function handleApplyFix(patchOverride?: Patch) {
+    const activePatch = patchOverride ?? patch;
+    if (!activePatch) return;
     setRetesting(true);
     setError(null);
 
@@ -125,7 +126,7 @@ export default function App() {
       const response = await fetch("/api/retest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, patch, before: observation }),
+        body: JSON.stringify({ spec, patch: activePatch, before: observation }),
       });
 
       if (!response.ok) {
@@ -134,6 +135,7 @@ export default function App() {
 
       const data: RetestResult = await response.json();
       setRetestResult(data);
+      setPatch(activePatch);
       setObservation({
         ...data.observation,
         size_kb: "0.4 KB",
@@ -143,38 +145,16 @@ export default function App() {
       // Update current spec with applied patch
       const patchedSpec: RequestSpec = {
         ...spec,
-        headers: { ...spec.headers, ...patch.set_headers },
-        body: patch.set_body ?? spec.body,
+        headers: { ...spec.headers, ...activePatch.set_headers },
+        body: activePatch.set_body ?? spec.body,
         approved: true,
       };
       setSpec(patchedSpec);
     } catch (err) {
-      // Simulate client-side verification if server endpoint fails or target is external
-      const patchedBody = patch.set_body ?? spec.body;
-      const patchedHeaders = { ...spec.headers, ...patch.set_headers };
-      setRetestResult({
-        patched_request: { ...spec, headers: patchedHeaders, body: patchedBody },
-        observation: {
-          request_id: "retest-" + Date.now(),
-          status: 200,
-          headers: { "content-type": "application/json" },
-          body_preview: JSON.stringify({ status: "success", fixed: true }, null, 2),
-          latency_ms: 195,
-          error_type: null,
-          error_message: null,
-          redirect_location: null,
-          size_kb: "0.2 KB",
-          cors_status: "allowed",
-        },
-        diff: {
-          status_before: observation?.status ?? 422,
-          status_after: 200,
-          latency_before_ms: observation?.latency_ms ?? 412,
-          latency_after_ms: 195,
-          body_changed: true,
-          verdict: "pass",
-        },
-      });
+      // Never fabricate a passing retest. Surface the failure so the fix
+      // stays explicitly unverified until the server confirms it.
+      setRetestResult(null);
+      setError(`Retest failed: ${String(err)}`);
     } finally {
       setRetesting(false);
     }
@@ -192,8 +172,6 @@ export default function App() {
     }
     navigator.clipboard.writeText(curl);
   }
-  
-  <div key={activeTab} className="fade-in"> ...tab content... </div>
 
   // Import OpenAPI file
   function handleImportOpenAPI(file: File) {

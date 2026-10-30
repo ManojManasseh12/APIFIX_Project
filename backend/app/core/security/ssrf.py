@@ -53,12 +53,18 @@ def check_url(raw_url: str, allowed: set[str]) -> None:
         raise PolicyError("missing hostname")
 
     key = _key(url)
-    if key not in allowed:
+    host = (url.hostname or "").lower()
+    default_port = 443 if url.scheme == "https" else 80
+    # Documentation and .env.example list public hosts without a port, while
+    # loopback entries keep one. Accept a bare host for the scheme's default
+    # port, but not for arbitrary ports.
+    bare_default = host in allowed and url.port in (None, default_port)
+    if key not in allowed and not bare_default:
         raise PolicyError(f"host not allowlisted: {key}")
     if key in LOOPBACK_ALLOW:
         return
 
-    port = url.port or (443 if url.scheme == "https" else 80)
+    port = url.port or default_port
     for ip in _resolve(url.hostname, port):
         if _is_blocked(ip):
             raise PolicyError(f"private or reserved address blocked: {ip}")

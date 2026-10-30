@@ -3,8 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.ai.rag.pipeline import pipeline
-from app.ai.rag.vector_store import vector_store
+from app.ai.rag.pipeline import ensure_seeded, pipeline
 from app.core.config import settings
 from app.routes.upload import validate_upload_name
 
@@ -17,6 +16,9 @@ class IngestRequest(BaseModel):
 
 @router.post("/ingest")
 async def ingest_files(payload: IngestRequest | None = None):
+    # Seed first so the bundled knowledge base and user uploads coexist in
+    # Chroma instead of the first upload replacing the seed corpus.
+    await ensure_seeded()
     source_files = None
     if payload is not None and payload.files is not None:
         source_files = [validate_upload_name(name) for name in payload.files]
@@ -35,4 +37,4 @@ async def ingest_files(payload: IngestRequest | None = None):
 
 @router.get("/kb/stats")
 async def knowledge_base_stats():
-    return await vector_store.stats()
+    return await ensure_seeded()

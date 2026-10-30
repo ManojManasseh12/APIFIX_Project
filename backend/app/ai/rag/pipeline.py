@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -5,6 +6,7 @@ from app.ai.rag.data_loader import data_process
 from app.ai.rag.embedding import embedding
 from app.ai.rag.models import Chunk, SearchHit
 from app.ai.rag.vector_store import vector_store
+from app.core.config import settings
 from app.rag.retriever import RetrievalResult, detect_version, get_retriever
 
 
@@ -59,9 +61,13 @@ class RAGPipeline:
 async def retrieve_for_api(
     question: str, api_name: str | None = None, path: str = ""
 ) -> RetrievalResult:
-    if (await vector_store.stats())["chunk_count"] == 0:
-        return get_retriever().search(question, api_name=api_name, path=path)
-
+    stats = await ensure_seeded()
+    if stats["chunk_count"] == 0:
+        # The local NumPy index is synchronous (MiniLM encode), so keep it
+        # off the event loop.
+        return await asyncio.to_thread(
+            get_retriever().search, question, api_name, path
+        )
     where = {"api_name": api_name} if api_name else None
     query_vector = await embedding.embed_prompt(question)
     dense = await vector_store.retrieve(
@@ -110,6 +116,43 @@ async def retrieve_for_api(
 
 
 pipeline = RAGPipeline()
+
+_seed_lock: asyncio.Lock | None = None
+_seed_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _seed_lock_for_current_loop() -> asyncio.Lock:
+    """One seed lock per event loop (tests and reloads use fresh loops)."""
+    global _seed_lock, _seed_loop
+    loop = asyncio.get_running_loop()
+    if _seed_lock is None or _seed_loop is not loop:
+        _seed_lock = asyncio.Lock()
+        _seed_loop = loop
+    return _seed_lock
+
+
+async def ensure_seeded() -> dict[str, Any]:
+    """Load the bundled seed knowledge base into Chroma once, when empty.
+
+    The seed index used to be visible only through the local NumPy retriever.
+    Once a single document was uploaded, Chroma became non-empty and the seed
+    knowledge silently disappeared from diagnosis and Q&A. Seeding Chroma on
+    first use keeps one retrieval store and makes /search and /kb/stats agree
+    with what the assistant actually cites.
+    """
+    stats = await vector_store.stats()
+    if not settings.seed_kb or stats["chunk_count"] > 0:
+        return stats
+
+    seed_file = Path(settings.seed_kb_file)
+    if not seed_file.is_file():
+        return stats
+
+    async with _seed_lock_for_current_loop():
+        stats = await vector_store.stats()
+        if stats["chunk_count"] == 0:
+            await pipeline.ingest(seed_file.parent, [seed_file.name])
+    return await vector_store.stats()
 
 
 async def ingest(

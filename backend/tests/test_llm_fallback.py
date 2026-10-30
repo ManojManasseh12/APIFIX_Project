@@ -12,6 +12,24 @@ from app.ai.llm import (
 from app.core.errors import StreamInterrupted
 
 
+@pytest.fixture(autouse=True)
+def clean_provider_env(monkeypatch):
+    """Keep real .env provider credentials out of provider-selection tests."""
+    for name in (
+        "PROVIDER_ORDER",
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEYS",
+        "GEMINI_MODEL",
+        "GROQ_API_KEY",
+        "GROQ_API_KEYS",
+        "GROQ_MODEL",
+        "MISTRAL_API_KEY",
+        "MISTRAL_API_KEYS",
+        "MISTRAL_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 class FakeProvider:
     def __init__(self, name: str, tokens: list[str], error: Exception | None = None):
         self.name = name

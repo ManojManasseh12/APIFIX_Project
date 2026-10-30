@@ -1,49 +1,23 @@
 import asyncio
-import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from app.ai.llm import get_providers
 
 
-async def check_gemini():
-    from google import genai
-
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    model = os.environ["GEMINI_MODEL"]
-    result = await client.aio.models.generate_content(
-        model=model, contents="Reply with the single word OK."
-    )
-    print("gemini:", model, "->", result.text.strip()[:40])
-
-
-async def check_groq():
-    from groq import AsyncGroq
-
-    client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"])
-    model = os.environ["GROQ_MODEL"]
-    result = await client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": "Reply with OK."}],
-        max_tokens=5,
-    )
-    print("groq:", model, "->", result.choices[0].message.content.strip())
+async def check_provider(provider) -> None:
+    try:
+        tokens = [
+            token
+            async for token in provider.stream(
+                "You are a health check. Reply with the single word OK.",
+                "Reply with OK.",
+            )
+        ]
+        print(f"{provider.label}: ok -> {''.join(tokens).strip()[:40]}")
+    except Exception as exc:
+        print(f"{provider.label}: FAILED {type(exc).__name__}: {exc}")
 
 
-async def check_mistral():
-    from mistralai import Mistral
-
-    client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
-    model = os.environ["MISTRAL_MODEL"]
-    result = await client.chat.complete_async(
-        model=model,
-        messages=[{"role": "user", "content": "Reply with OK."}],
-        max_tokens=5,
-    )
-    print("mistral:", model, "->", result.choices[0].message.content.strip())
-
-
-def check_embedding():
+def check_embedding() -> None:
     from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -51,12 +25,16 @@ def check_embedding():
     print("minilm:", len(vector), "dims")
 
 
-async def main():
-    for fn in (check_gemini, check_groq, check_mistral):
-        try:
-            await fn()
-        except Exception as exc:
-            print(fn.__name__, "FAILED:", type(exc).__name__, exc)
+async def main() -> None:
+    providers = get_providers()
+    if not providers:
+        print(
+            "No providers configured. Set GEMINI_API_KEY, GROQ_API_KEY or "
+            "MISTRAL_API_KEY in .env."
+        )
+        return
+    for provider in providers:
+        await check_provider(provider)
     check_embedding()
 
 

@@ -3,7 +3,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-DB = Path(__file__).resolve().parents[5] / "data" / "runs.sqlite3"
+DB = Path(__file__).resolve().parents[4] / "data" / "runs.sqlite3"
 
 
 def init() -> None:

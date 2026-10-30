@@ -55,7 +55,7 @@ async def evaluate(
     questions_path: Path, split: str | None = None
 ) -> dict[str, dict[str, float | int | None]]:
     pipeline_module = importlib.import_module("app.ai.rag.pipeline")
-    stats = await pipeline_module.vector_store.stats()
+    stats = await pipeline_module.ensure_seeded()
     if stats["chunk_count"] == 0:
         raise RuntimeError(
             "The Chroma knowledge base is empty; upload and ingest documents before evaluation."

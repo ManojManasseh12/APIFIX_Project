@@ -13,8 +13,10 @@ This repository is the working scaffold for the 5-day plan. It is deliberately a
 - Secret redaction and SSRF allowlist.
 - Local retrieval (MiniLM + NumPy) and Supabase pgvector retrieval.
 - Upload-based RAG ingestion with MiniLM embeddings, persistent ChromaDB, BM25 keyword search, and hybrid retrieval.
+- Seed knowledge base (`data/kb_chunks.jsonl`, 88 chunks) auto-loaded into Chroma on first use, so uploads add to it instead of hiding it.
 - Gemini → Groq → Mistral fallback adapters with quota-aware model/key switching.
 - SSE diagnosis endpoint with citations and a JSON patch.
+- Editable patch before retest, including a prompt for redacted token/header values.
 - **Ask API tab**: grounded, streaming Q&A for API concepts, doubts, and fixes.
 - React UI for request, observation, diagnosis, citations, retest diff, and API Q&A.
 - 50 evaluation request fixtures and an evidence map.
@@ -32,9 +34,9 @@ Measured on the `dev` split with a temporary Chroma collection seeded from
 | Hybrid | 0.971 | 0.548 | 35 |
 
 The corpus is small and the scores are directional. Run `python eval/run_eval.py
---split dev` or `--split heldout` against the Chroma knowledge base after
-ingesting documents. Questions with no expected evidence are reported as
-abstentions and excluded from Recall@5/MRR averages.
+--split dev` or `--split heldout`. The seed corpus is loaded into Chroma on
+first use, so no manual ingestion is required. Questions with no expected
+evidence are reported as abstentions and excluded from Recall@5/MRR averages.
 
 ### Not yet verified here
 
@@ -46,7 +48,7 @@ abstentions and excluded from Recall@5/MRR averages.
 ## What is not finished
 
 - The evaluation runner currently scores **retrieval only**; diagnosis correctness, citation accuracy, unsupported claims, and retest scoring are the next step.
-- The seed knowledge base has 22 starter chunks. Replace them with real source excerpts and add the rest of the 60–100 chunk set.
+- The seed knowledge base has 88 starter chunks. Replace them with real source excerpts and add the rest of the 60–100 chunk set.
 - `eval/evidence_map.json` is a starting map; refine it after ingestion.
 - Playwright/CORS evidence is intentionally not implemented.
 - No production auth, multi-tenancy, or deployment hardening.
@@ -79,7 +81,7 @@ backend/uploads/    Local uploaded documents (gitignored)
 backend/data/chroma/ Persistent ChromaDB files (gitignored)
 backend/mock_api/   deterministic local API
 backend/scripts/    provider check, ingestion, local index, scenario runner
-backend/tests/      security tests
+backend/tests/      unit, route, retrieval, security, and seed tests
 data/               datasets + knowledge-base seed
 eval/               case requests, evidence map, evaluation runner
 frontend/           React + Vite + Tailwind UI
@@ -125,6 +127,12 @@ curl -X POST http://127.0.0.1:8000/api/search \
 
 Configure `UPLOAD_DIR`, `CHROMA_DIR`, `EMBED_MODEL`, and `MAX_UPLOAD_MB` in
 `.env` to override the defaults.
+
+On the first retrieval, search, or KB-stats call, the backend loads
+`data/kb_chunks.jsonl` into Chroma if the collection is empty. Uploaded
+documents are added alongside the seed corpus. Set `SEED_KB=false` to start
+with an empty knowledge base, or `SEED_KB_FILE=<path>` to use a different seed
+file.
 
 ### 3. Run the mock API
 
@@ -224,14 +232,50 @@ If Supabase is unavailable, set `RETRIEVAL_BACKEND=local`; the local index is en
 
 ## Tests
 
+From the repository root:
+
 ```bash
-cd backend
-pytest -q
+PYTHONPATH=backend pytest backend/tests -q
+```
+
+The suite includes unit and route tests plus `test_api_httpx.py`, which drives
+the real FastAPI app through `httpx.ASGITransport` and starts the mock API on a
+random port to exercise `/api/test`, `/api/retest`, upload → ingest → search →
+delete, and the `/api/diagnose` and `/api/ask` SSE streams.
+
+Mock API scenario smoke test (start `python run_mock.py` first):
+
+```bash
+python backend/scripts/run_scenarios.py
+# add --network to include the external API checks
+```
+
+`--network` calls `postman-echo.com`, `petstore3.swagger.io`, and
+`jsonplaceholder.typicode.com`. Those hosts must be in `ALLOWED_HOSTS`
+(`.env.example` already lists them). Bare hosts are allowlisted for the
+scheme's default port only, e.g. `postman-echo.com` permits HTTPS port 443 but
+not `:8443`.
+
+Browser tests use Playwright with route interception, so they do not need the
+backend or an LLM key:
+
+```bash
+cd frontend
+npm install
+npx playwright install chromium
+npm run test:e2e
+```
+
+Playwright requires Node 20 or newer. If your system Node is older, point
+`PATH` at a Node 20 install first, for example:
+
+```bash
+PATH=/path/to/node20/bin:$PATH npm run test:e2e
 ```
 
 ## Evaluation
 
-After uploading and ingesting the corpus that corresponds to the labels:
+The runner auto-loads the seed corpus into Chroma when the collection is empty:
 
 ```bash
 python eval/run_eval.py --split dev
@@ -239,8 +283,7 @@ python eval/run_eval.py --split heldout
 ```
 
 The runner reads `eval/eval_questions.jsonl` and prints Recall@5 and MRR for
-dense, keyword, and hybrid retrieval. An empty Chroma collection is reported
-as an error rather than producing misleading zero scores.
+dense, keyword, and hybrid retrieval.
 
 ---
 

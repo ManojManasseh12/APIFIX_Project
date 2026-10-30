@@ -1,5 +1,31 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Citation, Patch, RetestResult } from "../types";
+
+const REDACTED = "<REDACTED>";
+
+function containsRedacted(value: unknown): boolean {
+  if (typeof value === "string") return value.includes(REDACTED);
+  if (Array.isArray(value)) return value.some(containsRedacted);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(containsRedacted);
+  }
+  return false;
+}
+
+function normalizePatch(value: unknown): Patch {
+  const raw = (value ?? {}) as Partial<Patch>;
+  return {
+    set_headers: Object.fromEntries(
+      Object.entries(raw.set_headers ?? {}).map(([key, item]) => [
+        key,
+        String(item),
+      ])
+    ),
+    remove_headers: (raw.remove_headers ?? []).map(String),
+    set_body: raw.set_body ?? null,
+    set_url: raw.set_url ?? null,
+  };
+}
 
 export function DiagnosisViewer({
   whatWentWrong,
@@ -22,11 +48,20 @@ export function DiagnosisViewer({
   status: "idle" | "running" | "done" | "error";
   error: string | null;
   retestResult: RetestResult | null;
-  onApplyFix: () => void;
+  onApplyFix: (patch: Patch) => void;
   onCopyCurl: () => void;
   retesting: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [patchDraft, setPatchDraft] = useState("");
+  const [editingPatch, setEditingPatch] = useState(false);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setPatchDraft(patch ? JSON.stringify(normalizePatch(patch), null, 2) : "");
+    setSecrets({});
+    setEditingPatch(false);
+  }, [patch]);
 
   // Combine static preset sources and dynamic stream citations
   const allSources = sources.length > 0
@@ -43,6 +78,59 @@ export function DiagnosisViewer({
     onCopyCurl();
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  let parsedPatch: Patch | null = null;
+  let patchError: string | null = null;
+  if (patchDraft) {
+    try {
+      parsedPatch = normalizePatch(JSON.parse(patchDraft));
+    } catch (err) {
+      patchError = err instanceof Error ? err.message : "Invalid JSON";
+    }
+  }
+
+  const redactedHeaderKeys = parsedPatch
+    ? Object.entries(parsedPatch.set_headers)
+        .filter(([, value]) => value.includes(REDACTED))
+        .map(([key]) => key)
+    : [];
+  const hasOtherRedaction = parsedPatch
+    ? containsRedacted({
+        remove_headers: parsedPatch.remove_headers,
+        set_body: parsedPatch.set_body,
+        set_url: parsedPatch.set_url,
+      })
+    : false;
+
+  function resolvedPatch(base: Patch): Patch {
+    const headers = Object.fromEntries(
+      Object.entries(base.set_headers).map(([key, value]) => [
+        key,
+        value.includes(REDACTED)
+          ? value.replace(REDACTED, secrets[key] ?? REDACTED)
+          : value,
+      ])
+    );
+    return { ...base, set_headers: headers };
+  }
+
+  const missingSecrets = redactedHeaderKeys.some(
+    (key) => !secrets[key]?.trim()
+  );
+  const unresolvedRedaction = Boolean(
+    parsedPatch && containsRedacted(resolvedPatch(parsedPatch))
+  );
+  const canRetest =
+    Boolean(parsedPatch) &&
+    !patchError &&
+    !missingSecrets &&
+    !unresolvedRedaction &&
+    !retesting;
+
+  function handleApply() {
+    if (!parsedPatch || !canRetest) return;
+    onApplyFix(resolvedPatch(parsedPatch));
   }
 
 
@@ -122,14 +210,76 @@ export function DiagnosisViewer({
         {/* SUGGESTED FIX */}
         {(suggestedFix || patch) && (
           <div className="mt-4">
-            <h3 className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-              Suggested Fix
-            </h3>
-            <div className="mt-1.5 overflow-hidden rounded-xl bg-[#0d1527] p-3.5 shadow-inner">
-              <pre className="max-h-48 overflow-auto font-mono text-xs leading-relaxed text-slate-100">
-                {suggestedFix || JSON.stringify(patch, null, 2)}
-              </pre>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                Suggested Fix
+              </h3>
+              {patch && (
+                <button
+                  type="button"
+                  onClick={() => setEditingPatch((value) => !value)}
+                  className="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  {editingPatch ? "Preview" : "Edit JSON"}
+                </button>
+              )}
             </div>
+            <div className="mt-1.5 overflow-hidden rounded-xl bg-[#0d1527] p-3.5 shadow-inner">
+              {editingPatch ? (
+                <textarea
+                  value={patchDraft}
+                  onChange={(event) => setPatchDraft(event.target.value)}
+                  spellCheck={false}
+                  rows={10}
+                  className="w-full resize-y bg-transparent font-mono text-xs leading-relaxed text-slate-100 outline-none"
+                />
+              ) : (
+                <pre className="max-h-48 overflow-auto font-mono text-xs leading-relaxed text-slate-100">
+                  {patchDraft || suggestedFix || JSON.stringify(patch, null, 2)}
+                </pre>
+              )}
+            </div>
+            {patchError && (
+              <p className="mt-2 rounded-lg bg-rose-50 p-2 text-[11px] text-rose-700">
+                Patch JSON is invalid: {patchError}
+              </p>
+            )}
+
+            {redactedHeaderKeys.length > 0 && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                <p className="text-[11px] font-semibold text-amber-900">
+                  This patch contains redacted secrets
+                </p>
+                <p className="mt-0.5 text-[11px] text-amber-800">
+                  Enter the real value for each header. For example, paste only
+                  the token that replaces <code>&lt;REDACTED&gt;</code>.
+                </p>
+                {redactedHeaderKeys.map((key) => (
+                  <label key={key} className="mt-2 block text-[11px] text-amber-900">
+                    <span className="font-mono">{key}</span>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={secrets[key] ?? ""}
+                      onChange={(event) =>
+                        setSecrets((prev) => ({ ...prev, [key]: event.target.value }))
+                      }
+                      placeholder="Paste the real token or secret"
+                      className="mt-1 w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-800 outline-none focus:border-amber-500"
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {hasOtherRedaction && (
+              <p className="mt-2 rounded-lg bg-amber-50 p-2 text-[11px] text-amber-800">
+                The patch also contains <code>&lt;REDACTED&gt;</code> outside
+                headers. Use <strong>Edit JSON</strong> to replace it before
+                retesting.
+              </p>
+            )}
           </div>
         )}
 
@@ -173,8 +323,8 @@ export function DiagnosisViewer({
       <div className="mt-6 pt-2">
         <div className="flex items-center gap-2">
           <button
-            onClick={onApplyFix}
-            disabled={retesting || (!suggestedFix && !patch)}
+            onClick={handleApply}
+            disabled={!canRetest}
             className="flex-1 rounded-xl bg-[#2563eb] py-2.5 px-4 text-center text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {retesting ? "Applying & Testing..." : "Apply fix and re-run"}
@@ -189,7 +339,11 @@ export function DiagnosisViewer({
         </div>
 
         <p className="mt-3 text-center text-[11px] text-slate-400">
-          A fix counts as verified only after the re-run returns success.
+          {missingSecrets
+            ? "Fill in the redacted header value(s) to enable the retest."
+            : unresolvedRedaction
+            ? "Replace the remaining <REDACTED> values in Edit JSON to enable the retest."
+            : "A fix counts as verified only after the re-run returns success."}
         </p>
       </div>
     </section>

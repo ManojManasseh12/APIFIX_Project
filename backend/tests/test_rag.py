@@ -325,7 +325,8 @@ def test_ingest_and_search_routes_return_expected_shapes(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(ingest_routes.pipeline, "ingest", ingest)
-    monkeypatch.setattr(ingest_routes.vector_store, "stats", stats)
+    monkeypatch.setattr(ingest_routes, "ensure_seeded", stats)
+    monkeypatch.setattr(search_routes, "ensure_seeded", stats)
     monkeypatch.setattr(search_routes.pipeline, "retrieve", retrieve)
     client = TestClient(app)
 

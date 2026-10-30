@@ -7,7 +7,14 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import AsyncIterator, Callable, Protocol
 
+from dotenv import load_dotenv
+
 from app.core.errors import AllProvidersFailed, StreamInterrupted
+
+# Provider adapters read os.environ directly, so load .env here as well. This
+# keeps get_providers() usable from scripts and tests, not only after the
+# FastAPI app has imported the settings module.
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

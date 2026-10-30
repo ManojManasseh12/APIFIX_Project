@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.ai.rag.pipeline import pipeline
+from app.ai.rag.pipeline import ensure_seeded, pipeline
 
 router = APIRouter(tags=["knowledge-base"])
 
@@ -16,6 +16,7 @@ class SearchRequest(BaseModel):
 
 @router.post("/search")
 async def search(payload: SearchRequest):
+    await ensure_seeded()
     hits = await pipeline.retrieve(
         payload.query, mode=payload.mode, k=payload.k
     )
