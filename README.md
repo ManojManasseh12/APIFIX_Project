@@ -40,6 +40,14 @@ Tuning was done on the dev split and confirmed on heldout (dense 1.000/0.564,
 hybrid 1.000/0.576), so hybrid now improves both recall and ranking quality
 instead of trading MRR for recall.
 
+The same dense and hybrid scores were verified against a live Supabase pgvector
+store (88 chunks). Supabase keyword search uses PostgreSQL full-text search,
+which ANDs query terms by default and returns nothing for a natural-language
+question; the backend builds an OR `tsquery` from the question's lexemes
+instead. Its standalone keyword Recall@5 is lower than local BM25 (0.471 dev /
+0.545 heldout), but hybrid still reaches 1.000 because it keeps a wider keyword
+candidate pool and anchors the best dense results.
+
 The corpus is small and the scores are directional. Run `python eval/run_eval.py
 --split dev` or `--split heldout`. The seed corpus is loaded into Chroma on
 first use, so no manual ingestion is required. Questions with no expected

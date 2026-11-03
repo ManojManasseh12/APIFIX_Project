@@ -87,6 +87,10 @@ create index if not exists kb_chunks_source_file_idx
 - `RRF_DENSE_ANCHOR` (default 2) keeps the best dense results in order;
   `RRF_KEYWORD_WEIGHT` (default 0.05) is the lexical bonus for the remaining
   candidates. `RRF_K` (default 60) is the standard RRF constant.
+- Supabase keyword search builds an OR `tsquery` from the question's lexemes.
+  PostgreSQL FTS ANDs terms by default, which returns nothing for a
+  natural-language question, so the retriever uses a wider keyword pool before
+  dense-anchored fusion.
 - LLM fallback retries the same model/key with exponential backoff and jitter
   (`LLM_MAX_ATTEMPTS_PER_PROVIDER`, default 3) before moving to the next one.
 - A `DATABASE_URL` containing `.env.example` placeholders is treated as

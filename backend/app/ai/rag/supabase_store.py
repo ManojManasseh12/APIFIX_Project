@@ -151,7 +151,10 @@ class SupabaseStore:
             raise ValueError(f"Unsupported retrieval mode: {mode}")
 
         api_name = (where or {}).get("api_name")
-        candidate_limit = max(k * 4, 20)
+        # Supabase's OR-based FTS ranking is noisier than local BM25, so keep a
+        # wider candidate pool for keyword to rescue a chunk outside the dense
+        # top-k without displacing the anchored dense results.
+        candidate_limit = max(k * 4, 40)
 
         if mode == "dense":
             rows = self._search_dense(query_vector, candidate_limit, api_name)
@@ -192,7 +195,7 @@ class SupabaseStore:
                 select {_SELECT_COLUMNS},
                        1 - (embedding <=> %s) as score
                 from kb_chunks
-                where (%s is null or api_name = %s)
+                where (%s::text is null or api_name = %s)
                   and embedding_model = %s
                   and embedding_dim = %s
                 order by embedding <=> %s
@@ -217,20 +220,29 @@ class SupabaseStore:
         with self._lock, self.conn.cursor() as cur:
             cur.execute(
                 f"""
+                with terms as (
+                  select string_agg(quote_literal(lexeme), ' | ') as query
+                  from (
+                    select distinct lexeme
+                    from unnest(to_tsvector('english', %s)) as t(lexeme)
+                  ) t
+                ),
+                q as (
+                  select to_tsquery('english', query) as tsq
+                  from terms
+                  where query is not null
+                )
                 select {_SELECT_COLUMNS},
-                       ts_rank_cd(
-                         fts, websearch_to_tsquery('english', %s)
-                       ) as score
-                from kb_chunks
-                where fts @@ websearch_to_tsquery('english', %s)
-                  and (%s is null or api_name = %s)
+                       ts_rank_cd(fts, q.tsq) as score
+                from kb_chunks, q
+                where fts @@ q.tsq
+                  and (%s::text is null or api_name = %s)
                   and embedding_model = %s
                   and embedding_dim = %s
                 order by score desc
                 limit %s
                 """,
                 (
-                    query,
                     query,
                     api_name,
                     api_name,
