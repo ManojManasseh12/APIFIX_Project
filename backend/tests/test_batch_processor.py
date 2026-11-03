@@ -125,6 +125,26 @@ def test_duplicate_files_are_skipped_within_a_batch(tmp_path):
     assert len(store.inserted) == 1
 
 
+def test_duplicate_winner_follows_input_order(tmp_path):
+    first = tmp_path / "a.txt"
+    second = tmp_path / "b.txt"
+    first.write_text("identical content", encoding="utf-8")
+    second.write_text("identical content", encoding="utf-8")
+    embedder = FakeEmbedder()
+    store = FakeStore()
+    processor = BatchProcessor(make_settings(), embedder=embedder)
+
+    results = asyncio.run(
+        processor.process_files(
+            [second, first], loader_for(), store
+        )
+    )
+
+    statuses = {path.name: result["status"] for path, result in results}
+    assert statuses == {"b.txt": "completed", "a.txt": "skipped"}
+    assert len(store.inserted) == 1
+
+
 def test_embedding_retries_before_failing_a_file(tmp_path):
     path = tmp_path / "doc.txt"
     path.write_text("retry me", encoding="utf-8")

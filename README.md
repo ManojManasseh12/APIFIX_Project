@@ -138,7 +138,8 @@ The script reads `data/kb_seed.csv`, calls the Gemini embedding API, and writes
 ### 2a. Upload and index documents with ChromaDB
 
 The upload/ingest/search endpoints are available at both `/api/...` and their
-root paths. Allowed file types are PDF, JSON, YAML, JSONL, Markdown, and text;
+root paths. Allowed file types are PDF, DOCX, XLSX, PPTX, HTML, XML, CSV,
+TSV, JSON, YAML, JSONL, Markdown, and text;
 uploads are limited by `MAX_UPLOAD_MB`.
 
 ```bash

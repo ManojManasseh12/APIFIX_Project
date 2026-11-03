@@ -274,25 +274,46 @@ class BatchProcessor:
         results: dict[Path, dict[str, Any]] = {}
         prepared_files: list[tuple[Path, list[Chunk]]] = []
         semaphore = asyncio.Semaphore(self.settings.max_concurrency)
-        hash_lock = asyncio.Lock()
+
+        async def hash_file(path: Path):
+            async with semaphore:
+                try:
+                    return path, await asyncio.to_thread(self._file_hash, path)
+                except Exception as error:
+                    logger.exception(
+                        "Failed to hash '%s' for batch ingestion", path.name
+                    )
+                    return path, error
+
+        # Hash first and resolve duplicates in input order so the same file
+        # batch always reports the same completed/skipped pair, regardless of
+        # which file happens to finish reading first.
+        hashed = await asyncio.gather(*(hash_file(path) for path in paths))
         batch_hashes: set[str] = set()
+        load_paths: list[Path] = []
+        for path, file_hash in hashed:
+            if isinstance(file_hash, Exception):
+                results[path] = {
+                    "status": "failed",
+                    "message": str(file_hash),
+                    "chunks_added": 0,
+                }
+            elif file_hash in batch_hashes:
+                results[path] = {
+                    "status": "skipped",
+                    "message": (
+                        f"File '{path.name}' duplicates another file in this "
+                        "batch."
+                    ),
+                    "chunks_added": 0,
+                }
+            else:
+                batch_hashes.add(file_hash)
+                load_paths.append(path)
 
         async def prepare_file(path: Path):
             async with semaphore:
                 try:
-                    file_hash = await asyncio.to_thread(self._file_hash, path)
-                    async with hash_lock:
-                        if file_hash in batch_hashes:
-                            return path, {
-                                "status": "skipped",
-                                "message": (
-                                    f"File '{path.name}' duplicates another "
-                                    "file in this batch."
-                                ),
-                                "chunks_added": 0,
-                            }, None
-                        batch_hashes.add(file_hash)
-
                     chunks = await loader(path)
                     if not chunks:
                         return path, {
@@ -314,7 +335,7 @@ class BatchProcessor:
                     }, None
 
         prepared_results = await asyncio.gather(
-            *(prepare_file(path) for path in paths)
+            *(prepare_file(path) for path in load_paths)
         )
         for path, result, chunks in prepared_results:
             if result is not None:

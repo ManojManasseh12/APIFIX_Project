@@ -1,7 +1,9 @@
 import asyncio
+import csv
 import hashlib
 import json
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +14,100 @@ from app.core.config import settings
 from scripts.chunk_text import chunk_by_tokens
 from scripts.parse_openapi import parse_openapi
 
-SUPPORTED_EXTENSIONS = {".pdf", ".json", ".yaml", ".yml", ".jsonl", ".md", ".txt"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".jsonl",
+    ".md",
+    ".txt",
+    ".html",
+    ".htm",
+    ".xml",
+    ".csv",
+    ".tsv",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+}
 _HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Extract readable text from HTML without pulling in a parser dependency."""
+
+    _SKIP = {"script", "style", "noscript", "nav", "footer", "svg"}
+    _BLOCK = {
+        "p",
+        "div",
+        "section",
+        "article",
+        "main",
+        "ul",
+        "ol",
+        "table",
+        "tr",
+        "br",
+        "hr",
+        "pre",
+        "blockquote",
+        "li",
+    }
+    _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._title_parts: list[str] = []
+        self._skip_depth = 0
+        self._title_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        tag = tag.lower()
+        if tag in self._SKIP:
+            self._skip_depth += 1
+        elif tag == "title":
+            self._title_depth += 1
+        elif tag in self._HEADINGS:
+            self._parts.append("\n\n" + "#" * self._HEADINGS[tag] + " ")
+        elif tag == "li":
+            self._parts.append("\n- ")
+        elif tag in {"td", "th"}:
+            self._parts.append(" | ")
+        elif tag in self._BLOCK:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in self._SKIP:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        elif tag == "title":
+            self._title_depth = max(0, self._title_depth - 1)
+        elif tag in self._HEADINGS or tag in self._BLOCK:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        if self._title_depth:
+            self._title_parts.append(data)
+        else:
+            self._parts.append(data)
+
+    @property
+    def title(self) -> str:
+        return " ".join(self._title_parts).strip()
+
+    def text(self) -> str:
+        lines = []
+        for line in "".join(self._parts).splitlines():
+            cleaned = re.sub(r"[ \t]+", " ", line).strip()
+            if cleaned:
+                lines.append(cleaned)
+            elif lines and lines[-1]:
+                lines.append("")
+        return "\n".join(lines).strip()
 
 
 class DataProcess:
@@ -52,6 +146,234 @@ class DataProcess:
             return documents
 
         return await asyncio.to_thread(read_pages)
+
+    async def load_docx(self, path: str | Path) -> list[Chunk]:
+        from docx import Document
+
+        source_path = Path(path)
+
+        def read_document() -> list[dict[str, Any]]:
+            document = Document(str(source_path))
+            blocks: list[str] = []
+            for paragraph in document.paragraphs:
+                text = paragraph.text.strip()
+                if not text:
+                    continue
+                style = getattr(paragraph.style, "name", "") or ""
+                if style.lower().startswith("heading"):
+                    level = next((int(ch) for ch in style if ch.isdigit()), 2)
+                    blocks.append(f"{'#' * min(level, 6)} {text}")
+                else:
+                    blocks.append(text)
+            for table in document.tables:
+                rows = []
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    if any(cells):
+                        rows.append(" | ".join(cells))
+                if rows:
+                    blocks.append("\n".join(rows))
+            content = "\n\n".join(blocks).strip()
+            if not content:
+                raise ValueError(f"{source_path}: no extractable text")
+            return [
+                {
+                    "title": source_path.name,
+                    "content": content,
+                    "metadata": self._metadata({}, source_path),
+                }
+            ]
+
+        return await self.chunk(await asyncio.to_thread(read_document))
+
+    async def load_xlsx(self, path: str | Path) -> list[Chunk]:
+        from openpyxl import load_workbook
+
+        source_path = Path(path)
+
+        def read_workbook() -> list[dict[str, Any]]:
+            workbook = load_workbook(
+                str(source_path), read_only=True, data_only=True
+            )
+            documents = []
+            try:
+                for worksheet in workbook.worksheets:
+                    rows = []
+                    for row in worksheet.iter_rows(values_only=True):
+                        values = [
+                            str(value).strip() if value is not None else ""
+                            for value in row
+                        ]
+                        if any(values):
+                            rows.append(" | ".join(values))
+                    if not rows:
+                        continue
+                    documents.append(
+                        {
+                            "title": f"{source_path.name} - {worksheet.title}",
+                            "content": f"# {worksheet.title}\n\n" + "\n".join(rows),
+                            "metadata": self._metadata(
+                                {"section": worksheet.title}, source_path
+                            ),
+                        }
+                    )
+            finally:
+                workbook.close()
+            if not documents:
+                raise ValueError(f"{source_path}: no extractable rows")
+            return documents
+
+        return await self.chunk(await asyncio.to_thread(read_workbook))
+
+    async def load_pptx(self, path: str | Path) -> list[Chunk]:
+        from pptx import Presentation
+
+        source_path = Path(path)
+
+        def shape_parts(shapes) -> list[str]:
+            parts: list[str] = []
+            for shape in shapes:
+                nested = getattr(shape, "shapes", None)
+                if nested is not None:
+                    parts.extend(shape_parts(nested))
+                    continue
+                if getattr(shape, "has_text_frame", False):
+                    text = shape.text_frame.text.strip()
+                    if text:
+                        parts.append(text)
+                if getattr(shape, "has_table", False):
+                    rows = []
+                    for row in shape.table.rows:
+                        cells = [cell.text.strip() for cell in row.cells]
+                        if any(cells):
+                            rows.append(" | ".join(cells))
+                    if rows:
+                        parts.append("\n".join(rows))
+            return parts
+
+        def read_presentation() -> list[dict[str, Any]]:
+            presentation = Presentation(str(source_path))
+            documents = []
+            for slide_number, slide in enumerate(presentation.slides, start=1):
+                parts = shape_parts(slide.shapes)
+                if slide.has_notes_slide:
+                    notes = slide.notes_slide.notes_text_frame.text.strip()
+                    if notes:
+                        parts.append(f"Notes: {notes}")
+                if not parts:
+                    continue
+                documents.append(
+                    {
+                        "title": f"{source_path.name} (slide {slide_number})",
+                        "content": "\n\n".join(parts),
+                        "metadata": self._metadata(
+                            {"page": slide_number, "section": f"Slide {slide_number}"},
+                            source_path,
+                        ),
+                    }
+                )
+            if not documents:
+                raise ValueError(f"{source_path}: no extractable text")
+            return documents
+
+        return await self.chunk(await asyncio.to_thread(read_presentation))
+
+    async def load_html(self, path: str | Path) -> list[Chunk]:
+        source_path = Path(path)
+
+        def read_html() -> list[dict[str, Any]]:
+            parser = _HTMLTextExtractor()
+            parser.feed(
+                source_path.read_text(encoding="utf-8", errors="replace")
+            )
+            parser.close()
+            content = parser.text()
+            if not content:
+                raise ValueError(f"{source_path}: no extractable text")
+            title = parser.title or source_path.name
+            if not content.lstrip().startswith("#"):
+                content = f"# {title}\n\n{content}"
+            return [
+                {
+                    "title": title,
+                    "content": content,
+                    "metadata": self._metadata({"source_title": title}, source_path),
+                }
+            ]
+
+        return await self.chunk(await asyncio.to_thread(read_html))
+
+    async def load_xml(self, path: str | Path) -> list[Chunk]:
+        import xml.etree.ElementTree as ElementTree
+
+        source_path = Path(path)
+
+        def read_xml() -> list[dict[str, Any]]:
+            raw = source_path.read_text(encoding="utf-8", errors="replace")
+            if "<!DOCTYPE" in raw.upper() or "<!ENTITY" in raw.upper():
+                raise ValueError(
+                    f"{source_path}: DTDs and entities are not supported"
+                )
+            root = ElementTree.fromstring(raw)
+            lines: list[str] = []
+
+            def walk(element, trail: list[str]) -> None:
+                tag = (
+                    element.tag.split("}")[-1]
+                    if isinstance(element.tag, str)
+                    else "node"
+                )
+                label = "/".join(trail + [tag])
+                if element.attrib:
+                    attributes = " ".join(
+                        f"{key}={value}" for key, value in element.attrib.items()
+                    )
+                    lines.append(f"{label} attributes: {attributes}")
+                text = (element.text or "").strip()
+                if text:
+                    lines.append(f"{label}: {text}")
+                for child in element:
+                    walk(child, trail + [tag])
+
+            walk(root, [])
+            content = "\n".join(lines).strip()
+            if not content:
+                raise ValueError(f"{source_path}: no extractable text")
+            return [
+                {
+                    "title": source_path.name,
+                    "content": content,
+                    "metadata": self._metadata({}, source_path),
+                }
+            ]
+
+        return await self.chunk(await asyncio.to_thread(read_xml))
+
+    async def load_csv(self, path: str | Path) -> list[Chunk]:
+        source_path = Path(path)
+        delimiter = "\t" if source_path.suffix.lower() == ".tsv" else ","
+
+        def read_csv() -> list[dict[str, Any]]:
+            rows = []
+            with source_path.open(
+                "r", encoding="utf-8-sig", newline=""
+            ) as file:
+                for row in csv.reader(file, delimiter=delimiter):
+                    values = [value.strip() for value in row]
+                    if any(values):
+                        rows.append(" | ".join(values))
+            content = "\n".join(rows).strip()
+            if not content:
+                raise ValueError(f"{source_path}: no extractable rows")
+            return [
+                {
+                    "title": source_path.name,
+                    "content": content,
+                    "metadata": self._metadata({}, source_path),
+                }
+            ]
+
+        return await self.chunk(await asyncio.to_thread(read_csv))
 
     async def load_openapi(self, path: str | Path) -> list[Chunk]:
         source_path = Path(path)
@@ -230,6 +552,18 @@ class DataProcess:
         suffix = source_path.suffix.lower()
         if suffix == ".pdf":
             return await self.chunk(await self.load_pdf(source_path))
+        if suffix == ".docx":
+            return await self.load_docx(source_path)
+        if suffix == ".xlsx":
+            return await self.load_xlsx(source_path)
+        if suffix == ".pptx":
+            return await self.load_pptx(source_path)
+        if suffix in {".html", ".htm"}:
+            return await self.load_html(source_path)
+        if suffix == ".xml":
+            return await self.load_xml(source_path)
+        if suffix in {".csv", ".tsv"}:
+            return await self.load_csv(source_path)
         if suffix == ".jsonl":
             return await self.load_jsonl(source_path)
         if suffix in {".json", ".yaml", ".yml"}:
