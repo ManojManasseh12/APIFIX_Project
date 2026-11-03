@@ -200,9 +200,9 @@ class DataProcess:
 
         return await asyncio.to_thread(make_chunks)
 
-    async def process_folder(
+    def select_files(
         self, folder: str | Path, source_files: list[str] | None = None
-    ) -> list[Chunk]:
+    ) -> list[Path]:
         root = Path(folder)
         if not root.is_dir():
             raise FileNotFoundError(f"Upload folder does not exist: {root}")
@@ -222,44 +222,51 @@ class DataProcess:
                 raise FileNotFoundError(
                     "Uploaded file(s) not found: " + ", ".join(missing)
                 )
+        return files
 
+    async def load_file(self, path: str | Path) -> list[Chunk]:
+        """Load and chunk one supported file."""
+        source_path = Path(path)
+        suffix = source_path.suffix.lower()
+        if suffix == ".pdf":
+            return await self.chunk(await self.load_pdf(source_path))
+        if suffix == ".jsonl":
+            return await self.load_jsonl(source_path)
+        if suffix in {".json", ".yaml", ".yml"}:
+            parsed = await asyncio.to_thread(self._read_structured, source_path)
+            if isinstance(parsed, dict) and isinstance(parsed.get("paths"), dict):
+                return await self.load_openapi(source_path)
+            text = json.dumps(parsed, ensure_ascii=False, indent=2)
+            return await self.chunk(
+                [
+                    {
+                        "title": source_path.name,
+                        "content": text,
+                        "metadata": self._metadata({}, source_path),
+                    }
+                ]
+            )
+
+        text = await asyncio.to_thread(
+            source_path.read_text, encoding="utf-8"
+        )
+        return await self.chunk(
+            [
+                {
+                    "title": source_path.name,
+                    "content": text,
+                    "metadata": self._metadata({}, source_path),
+                }
+            ]
+        )
+
+    async def process_folder(
+        self, folder: str | Path, source_files: list[str] | None = None
+    ) -> list[Chunk]:
+        files = self.select_files(folder, source_files)
         chunks = []
         for path in files:
-            suffix = path.suffix.lower()
-            if suffix == ".pdf":
-                chunks.extend(await self.chunk(await self.load_pdf(path)))
-            elif suffix == ".jsonl":
-                chunks.extend(await self.load_jsonl(path))
-            elif suffix in {".json", ".yaml", ".yml"}:
-                parsed = await asyncio.to_thread(self._read_structured, path)
-                if isinstance(parsed, dict) and isinstance(parsed.get("paths"), dict):
-                    chunks.extend(await self.load_openapi(path))
-                else:
-                    text = json.dumps(parsed, ensure_ascii=False, indent=2)
-                    chunks.extend(
-                        await self.chunk(
-                            [
-                                {
-                                    "title": path.name,
-                                    "content": text,
-                                    "metadata": self._metadata({}, path),
-                                }
-                            ]
-                        )
-                    )
-            else:
-                text = await asyncio.to_thread(path.read_text, encoding="utf-8")
-                chunks.extend(
-                    await self.chunk(
-                        [
-                            {
-                                "title": path.name,
-                                "content": text,
-                                "metadata": self._metadata({}, path),
-                            }
-                        ]
-                    )
-                )
+            chunks.extend(await self.load_file(path))
         return chunks
 
     @staticmethod

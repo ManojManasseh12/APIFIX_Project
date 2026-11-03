@@ -6,8 +6,9 @@ React UI
   → SSRF guard + redaction + approval
   → HTTPX observation
   → query builder
-  → local NumPy retriever or Supabase pgvector + FTS + RRF
-  → Gemini → Groq → Mistral
+  → local Chroma / NumPy retriever or Supabase pgvector + FTS
+  → dense-anchored weighted RRF (top dense results protected, keyword rescues)
+  → Gemini → Groq → Mistral (same-model retry, then provider fallback)
   → citations + JSON patch
   → user approval
   → retest + diff
@@ -66,8 +67,28 @@ create index if not exists kb_chunks_source_file_idx
 | Decision | Choice | Why |
 |---|---|---|
 | Streaming | SSE over POST + fetch reader | `EventSource` cannot POST |
-| Retrieval | Supabase pgvector primary; local `.npy` fallback | Demo survives network failure |
+| Retrieval | Supabase pgvector primary; local Chroma/NumPy fallback | Demo survives network failure |
+| Fusion | Dense-anchored weighted RRF | Dense ranks better on the seed corpus; keyword still rescues lexical matches without displacing the best dense hits |
+| Ingestion | File batches + token/count-bounded embedding requests | Mirrors `cloud_llm`, avoids oversized Gemini calls and keeps one bad file from failing the batch |
 | Runs | SQLite | Fewer dependencies on demo day |
 | LLM output | Markdown + `[KB-...]` + final JSON patch | Streams naturally and is machine-applicable |
 | Approval | Method-based, server-enforced | Matches the deck's safety rule |
 | Redirects | Not followed automatically | Preserves 3xx evidence and removes redirect SSRF |
+
+## Retrieval and ingestion tuning
+
+- Chroma collections are named per `EMBED_MODEL`/`EMBED_DIM` and store both in
+  collection metadata. A mismatch raises a clear rebuild error instead of
+  querying incompatible vectors. Supabase queries filter on the same two
+  columns.
+- Ingestion uses `BATCH_FILE_SIZE` (10) and `BATCH_MAX_CONCURRENCY` (4), skips
+  duplicate files within a batch, and embeds at most 64 chunks / 8,000 estimated
+  tokens per request with per-minute request/token throttles.
+- `RRF_DENSE_ANCHOR` (default 2) keeps the best dense results in order;
+  `RRF_KEYWORD_WEIGHT` (default 0.05) is the lexical bonus for the remaining
+  candidates. `RRF_K` (default 60) is the standard RRF constant.
+- LLM fallback retries the same model/key with exponential backoff and jitter
+  (`LLM_MAX_ATTEMPTS_PER_PROVIDER`, default 3) before moving to the next one.
+- A `DATABASE_URL` containing `.env.example` placeholders is treated as
+  unconfigured, so the app stays on the local store without a failed connection
+  attempt.

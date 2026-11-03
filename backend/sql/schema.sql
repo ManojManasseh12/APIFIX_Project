@@ -35,6 +35,9 @@ create table if not exists kb_chunks (
 );
 
 -- Upgrade an existing table created from an older copy of docs/ARCHITECTURE.md.
+alter table kb_chunks add column if not exists embedding_model text;
+alter table kb_chunks add column if not exists embedding_dim int;
+alter table kb_chunks add column if not exists embedding_pipeline_version text;
 alter table kb_chunks add column if not exists source_file text;
 
 create index if not exists kb_chunks_embedding_idx

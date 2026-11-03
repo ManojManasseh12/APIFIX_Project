@@ -31,7 +31,14 @@ Measured on the `dev` split with a temporary Chroma collection seeded from
 |---|---:|---:|---:|
 | Dense | 0.971 | 0.623 | 35 |
 | Keyword | 0.614 | 0.375 | 35 |
-| Hybrid | 0.829 | 0.461 | 35 |
+| Hybrid | 1.000 | 0.629 | 35 |
+
+The hybrid row uses dense-anchored weighted RRF: the best two dense results
+keep their order, then keyword contributes a small rank bonus (`RRF_KEYWORD_WEIGHT=0.05`)
+so it can rescue a relevant chunk that dense ranked just outside the top 5.
+Tuning was done on the dev split and confirmed on heldout (dense 1.000/0.564,
+hybrid 1.000/0.576), so hybrid now improves both recall and ranking quality
+instead of trading MRR for recall.
 
 The corpus is small and the scores are directional. Run `python eval/run_eval.py
 --split dev` or `--split heldout`. The seed corpus is loaded into Chroma on
@@ -145,6 +152,31 @@ documents are added alongside the seed corpus. Set `SEED_KB=false` to start
 with an empty knowledge base, or `SEED_KB_FILE=<path>` to use a different seed
 file.
 
+### 2b. Batch ingestion
+
+Ingestion follows the same shape as `cloud_llm`: files are processed in batches
+of `BATCH_FILE_SIZE` (default 10), up to `BATCH_MAX_CONCURRENCY` (default 4)
+files are prepared at once, duplicate files in the same batch are skipped, and
+chunks are embedded in requests capped at `EMBED_MAX_CHUNKS_PER_REQUEST`
+(default 64) and `EMBED_MAX_TOKENS_PER_REQUEST` (default 8,000). Gemini requests
+are throttled to `EMBED_REQUESTS_PER_MINUTE` (default 60) and
+`EMBED_TOKENS_PER_MINUTE` (default 100,000), with retries controlled by
+`EMBED_MAX_RETRIES`, `EMBED_RETRY_BASE_DELAY_S`, and `EMBED_RETRY_MAX_DELAY_S`.
+
+`POST /api/ingest` returns both totals and per-file statuses
+(`completed`, `skipped`, `empty`, or `failed`) so one bad file does not discard
+the rest of the batch:
+
+```json
+{
+  "chunks_added": 88,
+  "sources": ["kb_chunks.jsonl"],
+  "files": [
+    {"file": "kb_chunks.jsonl", "status": "completed", "chunks_added": 88, "message": "..."}
+  ]
+}
+```
+
 ### 3. Run the mock API
 
 From the repository root:
@@ -186,10 +218,14 @@ PROVIDER_ORDER=gemini,groq,mistral
 ```
 
 `GEMINI_MODEL`, `GROQ_MODEL`, and `MISTRAL_MODEL` accept comma-separated
-models. Models/providers are streamed in `PROVIDER_ORDER`; if one hits a rate
-limit or exhausted quota, the backend automatically retries the next model or
-provider before any token is sent. Add `GEMINI_API_KEYS`, `GROQ_API_KEYS`, or
-`MISTRAL_API_KEYS` (comma-separated) to rotate across multiple keys too.
+models. Models/providers are streamed in `PROVIDER_ORDER`. A retryable failure
+(429/quota, timeout, connection error, 5xx) is retried on the **same** model
+and key up to `LLM_MAX_ATTEMPTS_PER_PROVIDER` times (default 3) with exponential
+backoff and jitter; only then does the backend rotate to the next model or
+provider. Authentication errors move on immediately. Timeouts come from
+`LLM_FIRST_TOKEN_TIMEOUT_S` and `LLM_TIMEOUT_S`. Add `GEMINI_API_KEYS`,
+`GROQ_API_KEYS`, or `MISTRAL_API_KEYS` (comma-separated) to rotate across
+multiple keys too.
 
 Verify them:
 
@@ -231,9 +267,10 @@ curl -N -X POST http://127.0.0.1:8000/api/ask \
 ## Supabase pgvector
 
 The app uses Supabase only when `RETRIEVAL_BACKEND=supabase` and
-`DATABASE_URL` is set. Otherwise it uses the local Chroma index. Both stores
-implement the same interface, so `/api/search`, `/api/diagnose`, `/api/ask`,
-uploads, deletes, and `eval/run_eval.py` work against either one.
+`DATABASE_URL` is set to a real (non-placeholder) value. Otherwise it uses the
+local Chroma index. Both stores implement the same interface, so `/api/search`,
+`/api/diagnose`, `/api/ask`, uploads, deletes, and `eval/run_eval.py` work
+against either one.
 
 1. Create a Supabase project and open **SQL Editor**.
 2. Run [`backend/sql/schema.sql`](backend/sql/schema.sql) once. It enables the
@@ -248,8 +285,11 @@ uploads, deletes, and `eval/run_eval.py` work against either one.
    RETRIEVAL_BACKEND=supabase
    ```
 
-   `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are only for the REST/JS client;
-   the pgvector retriever does not need them.
+   `DATABASE_URL` is the only Supabase setting the backend needs; the pgvector
+   retriever connects to it directly. If the value still contains the
+   `.env.example` placeholders (`<ref>`, `<password>`, `<region>`), the app
+   treats Supabase as unconfigured and stays on the local Chroma store instead
+   of attempting a connection.
 5. Install the Python deps (already listed in `backend/requirements.txt`):
 
    ```bash

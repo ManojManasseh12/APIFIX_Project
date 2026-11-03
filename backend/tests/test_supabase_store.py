@@ -100,8 +100,30 @@ def test_hybrid_search_fuses_dense_and_keyword_ranks():
         [0.1] * settings.embed_dim, "query", 3, "hybrid", None
     )
 
-    assert [hit.chunk_id for hit in hits] == ["b", "a", "c"]
-    assert hits[0].score > hits[1].score
+    # The best dense results keep their order; keyword then fills the tail.
+    assert [hit.chunk_id for hit in hits] == ["a", "b", "c"]
+    assert hits[0].score >= hits[1].score
+
+
+def test_hybrid_search_lets_keyword_rescue_missing_dense_result(monkeypatch):
+    store = bare_store()
+    store._search_dense = lambda vector, limit, api_name: [
+        {"chunk_id": f"dense-{index}", "chunk_text": "D"} for index in range(6)
+    ]
+    store._search_keyword = lambda query, limit, api_name: [
+        {"chunk_id": "dense-5", "chunk_text": "D"},
+        {"chunk_id": "dense-0", "chunk_text": "D"},
+    ]
+    monkeypatch.setattr(settings, "rrf_dense_anchor", 2)
+    monkeypatch.setattr(settings, "rrf_keyword_weight", 0.05)
+
+    hits = store._retrieve_sync(
+        [0.1] * settings.embed_dim, "query", 5, "hybrid", None
+    )
+
+    assert [hit.chunk_id for hit in hits[:2]] == ["dense-0", "dense-1"]
+    # dense-5 was outside the dense top 5 but wins a slot from its BM25 rank.
+    assert "dense-5" in [hit.chunk_id for hit in hits]
 
 
 def test_get_store_uses_supabase_when_configured(monkeypatch):

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 load_dotenv(ROOT / ".env")
 
+from app.ai.rag.batch_processor import batch_processor  # noqa: E402
 from app.ai.rag.embedding import embedding  # noqa: E402
 from scripts.chunk_text import token_count  # noqa: E402
 
@@ -28,7 +29,7 @@ def main(csv_path: str | None = None):
         f"Embedding {len(texts)} chunks with {embedding.model_name} "
         f"({embedding.dimensions} dims)..."
     )
-    embeddings = asyncio.run(embedding.embed_texts(texts))
+    embeddings = asyncio.run(batch_processor.embed_texts(texts))
 
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         register_vector(conn)

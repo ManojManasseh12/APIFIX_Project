@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import os
+import random
 import time
 from contextlib import suppress
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import AsyncIterator, Callable, Protocol
 
 from dotenv import load_dotenv
 
+from app.core.config import settings
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 
 # Provider adapters read os.environ directly, so load .env here as well. This
@@ -346,52 +348,77 @@ async def stream_with_fallback(
 
     Tokens are emitted as soon as a provider sends them. By default a fallback
     only happens before the first token, so two models' answers are never
-    spliced together. `on_skip(provider, reason, has_next, output_started)` is
-    called when an attempt fails and the next model/key is about to be tried.
+    spliced together. Retryable failures are retried on the same model/key with
+    exponential backoff and jitter before moving on.
+    `on_skip(provider, reason, has_next, output_started)` is called when a
+    model/key is abandoned and the next attempt is about to be tried.
 
     With `restart_after_partial=True` (used by the Q&A endpoint), a retryable
     failure after the first token discards the partial answer and restarts on
     the next model. The caller must clear its buffer when
     `output_started=True`.
     """
-    first_token_timeout = float(os.getenv("LLM_FIRST_TOKEN_TIMEOUT_S", "20"))
-    overall_timeout = float(os.getenv("LLM_TIMEOUT_S", "120"))
+    first_token_timeout = settings.llm_first_token_timeout_s
+    overall_timeout = settings.llm_timeout_s
+    max_attempts = max(1, settings.llm_max_attempts_per_provider)
     errors: list[str] = []
     for index, provider in enumerate(providers):
-        started = False
-        try:
-            async for token in _timed_stream(
-                provider, system, user, first_token_timeout, overall_timeout
-            ):
-                if not started:
-                    started = True
-                    logger.info("LLM streaming from %s", provider.label)
-                yield provider.label, token
-            return
-        except Exception as exc:
-            detail = f"{provider.label}: {type(exc).__name__}: {exc}"
-            errors.append(detail)
-            has_next = index + 1 < len(providers)
-            reason = error_reason(exc)
+        for attempt in range(1, max_attempts + 1):
+            started = False
+            try:
+                async for token in _timed_stream(
+                    provider, system, user, first_token_timeout, overall_timeout
+                ):
+                    if not started:
+                        started = True
+                        logger.info("LLM streaming from %s", provider.label)
+                    yield provider.label, token
+                return
+            except Exception as exc:
+                detail = f"{provider.label}: {type(exc).__name__}: {exc}"
+                reason = error_reason(exc)
+                retryable = is_retryable_error(exc)
 
-            if started:
-                if not (restart_after_partial and has_next and is_retryable_error(exc)):
-                    raise StreamInterrupted(
-                        "Provider failed after output began; restart the answer."
-                    ) from exc
-                logger.warning(
-                    "LLM provider %s failed after output (%s); restarting on next model",
-                    provider.label,
-                    reason,
-                )
-            else:
-                logger.warning(
-                    "LLM provider %s failed (%s): %s", provider.label, reason, exc
-                )
+                if started:
+                    has_next = index + 1 < len(providers)
+                    if not (restart_after_partial and has_next and retryable):
+                        raise StreamInterrupted(
+                            "Provider failed after output began; restart the answer."
+                        ) from exc
+                    logger.warning(
+                        "LLM provider %s failed after output (%s); restarting "
+                        "on next model",
+                        provider.label,
+                        reason,
+                    )
+                elif retryable and attempt < max_attempts:
+                    delay = min(
+                        settings.llm_retry_max_delay_s,
+                        settings.llm_retry_base_delay_s * (2 ** (attempt - 1)),
+                    ) * (0.5 + random.random())
+                    logger.warning(
+                        "LLM provider %s failed (%s) attempt %d/%d; retrying "
+                        "same model in %.2fs",
+                        provider.label,
+                        reason,
+                        attempt,
+                        max_attempts,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.warning(
+                        "LLM provider %s failed (%s): %s",
+                        provider.label,
+                        reason,
+                        exc,
+                    )
 
-            if on_skip is not None:
-                on_skip(provider.label, reason, has_next, started)
-            # Never retry the same model/key; move on to the next attempt.
-            continue
+                errors.append(detail)
+                has_next = index + 1 < len(providers)
+                if on_skip is not None:
+                    on_skip(provider.label, reason, has_next, started)
+                break
 
     raise AllProvidersFailed("; ".join(errors) or "no providers configured")

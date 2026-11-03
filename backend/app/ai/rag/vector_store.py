@@ -6,6 +6,7 @@ import threading
 from collections import Counter
 from typing import Any
 
+from app.ai.rag.fusion import dense_anchored_rrf
 from app.ai.rag.models import Chunk, SearchHit
 from app.core.config import settings
 
@@ -42,6 +43,10 @@ class VectorStore:
                     self._collection = client.get_or_create_collection(
                         name=collection_name(),
                         configuration={"hnsw": {"space": "cosine"}},
+                        metadata={
+                            "embedding_model": settings.embed_model,
+                            "embedding_dim": settings.embed_dim,
+                        },
                     )
         return self._collection
 
@@ -57,11 +62,26 @@ class VectorStore:
             raise ValueError("Each chunk must have exactly one embedding vector")
         if not chunks:
             return 0
+        for vector in vectors:
+            if len(vector) != settings.embed_dim:
+                raise ValueError(
+                    f"Expected {settings.embed_dim}-dimensional vectors from "
+                    f"{settings.embed_model}, received {len(vector)}."
+                )
 
         self.collection.upsert(
             ids=[chunk.id for chunk in chunks],
             documents=[chunk.content for chunk in chunks],
-            metadatas=[self._chroma_metadata(chunk.metadata) for chunk in chunks],
+            metadatas=[
+                self._chroma_metadata(
+                    {
+                        **chunk.metadata,
+                        "embedding_model": settings.embed_model,
+                        "embedding_dim": settings.embed_dim,
+                    }
+                )
+                for chunk in chunks
+            ],
             embeddings=vectors,
         )
         self._rebuild_keyword_index()
@@ -92,26 +112,48 @@ class VectorStore:
         if mode not in {"dense", "keyword", "hybrid"}:
             raise ValueError(f"Unsupported retrieval mode: {mode}")
 
+        self._check_embedding_compatibility()
+
         if mode == "dense":
             return self._dense_search(query_vector, k, where)[:k]
         if mode == "keyword":
             return self._keyword_search(query_text, k, where)[:k]
-        dense = self._dense_search(query_vector, k, where)
-        keyword = self._keyword_search(query_text, k, where)
+        # Pull a wider candidate pool so keyword can rescue a chunk that is
+        # just outside the dense top-k, then anchor the best dense results.
+        candidate_limit = max(k * 4, 20)
+        dense = self._dense_search(query_vector, candidate_limit, where)
+        keyword = self._keyword_search(query_text, candidate_limit, where)
 
-        dense_rank = [hit.chunk_id for hit in dense]
-        keyword_rank = [hit.chunk_id for hit in keyword]
-        fused: dict[str, float] = {}
-        for ranking in (dense_rank, keyword_rank):
-            for rank, chunk_id in enumerate(ranking, start=1):
-                fused[chunk_id] = fused.get(chunk_id, 0.0) + 1.0 / (60 + rank)
+        fused = dense_anchored_rrf(
+            [hit.chunk_id for hit in dense],
+            [hit.chunk_id for hit in keyword],
+            dense_weight=settings.rrf_dense_weight,
+            keyword_weight=settings.rrf_keyword_weight,
+            k=settings.rrf_k,
+            dense_anchor=settings.rrf_dense_anchor,
+        )
         records = {hit.chunk_id: hit for hit in dense + keyword}
         return [
             records[chunk_id].model_copy(update={"score": score})
-            for chunk_id, score in sorted(
-                fused.items(), key=lambda item: (-item[1], item[0])
-            )[:k]
+            for chunk_id, score in fused[:k]
         ]
+
+    def _check_embedding_compatibility(self) -> None:
+        metadata = getattr(self.collection, "metadata", None) or {}
+        model = metadata.get("embedding_model")
+        dimensions = metadata.get("embedding_dim")
+        if model and str(model) != settings.embed_model:
+            raise RuntimeError(
+                f"Chroma collection was built with embedding model {model!r}, "
+                f"but the app is configured for {settings.embed_model!r}. "
+                "Rebuild the collection or restore the original EMBED_MODEL."
+            )
+        if dimensions is not None and int(dimensions) != settings.embed_dim:
+            raise RuntimeError(
+                f"Chroma collection was built with {dimensions}-dimensional "
+                f"vectors, but EMBED_DIM is {settings.embed_dim}. Rebuild the "
+                "collection or restore the original EMBED_DIM."
+            )
 
     def _dense_search(
         self, query_vector: list[float], k: int, where: dict[str, Any] | None
@@ -251,12 +293,13 @@ def get_store():
     """Return the configured retrieval store.
 
     Supabase is used when ``RETRIEVAL_BACKEND=supabase`` and ``DATABASE_URL``
-    is set. If the database cannot be reached (or the schema is missing), the
-    app logs a warning and keeps working against the local Chroma index.
+    is set to a non-placeholder value. If the database cannot be reached (or
+    the schema is missing), the app logs a warning and keeps working against the
+    local Chroma index.
     """
     if (
         settings.retrieval_backend.strip().lower() == "supabase"
-        and settings.database_url.strip()
+        and settings.database_url_configured
     ):
         try:
             from app.ai.rag.supabase_store import SupabaseStore

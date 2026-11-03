@@ -13,6 +13,12 @@ begin;
 -- Existing rows contain 384-d MiniLM vectors.
 delete from kb_chunks;
 
+-- Older schemas may not have the model/dimension columns at all.
+alter table kb_chunks add column if not exists embedding_model text;
+alter table kb_chunks add column if not exists embedding_dim int;
+alter table kb_chunks add column if not exists embedding_pipeline_version text;
+alter table kb_chunks add column if not exists source_file text;
+
 -- The HNSW index is dimension-specific, so rebuild it around the type change.
 drop index if exists kb_chunks_embedding_idx;
 

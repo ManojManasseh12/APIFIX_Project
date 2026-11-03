@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.ai.rag.embedding import embedding
+from app.ai.rag.fusion import dense_anchored_rrf
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -26,14 +27,6 @@ def detect_version(path: str) -> str | None:
         if len(part) > 1 and part[0] == "v" and part[1:].isdigit():
             return part
     return None
-
-
-def rrf(rank_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
-    scores: dict[str, float] = {}
-    for ranks in rank_lists:
-        for rank, chunk_id in enumerate(ranks, start=1):
-            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
-    return sorted(scores.items(), key=lambda pair: -pair[1])
 
 
 def _version_check(rows: list[dict], requested_path: str):
@@ -193,8 +186,13 @@ class SupabaseRetriever:
                 version_mismatch=True, other_versions=versions, query=query
             )
 
-        fused = rrf(
-            [[row["chunk_id"] for row in dense], [row["chunk_id"] for row in keyword]]
+        fused = dense_anchored_rrf(
+            [row["chunk_id"] for row in dense],
+            [row["chunk_id"] for row in keyword],
+            dense_weight=settings.rrf_dense_weight,
+            keyword_weight=settings.rrf_keyword_weight,
+            k=settings.rrf_k,
+            dense_anchor=settings.rrf_dense_anchor,
         )
         by_id = {row["chunk_id"]: row for row in dense + keyword}
         top = [by_id[cid] | {"rrf_score": score} for cid, score in fused[:6]]
@@ -210,11 +208,15 @@ def get_retriever():
     global _RETRIEVER
     if _RETRIEVER is not None:
         return _RETRIEVER
-    if settings.retrieval_backend == "supabase" and settings.database_url:
+    backend = settings.retrieval_backend.strip().lower()
+    if backend == "supabase" and settings.database_url_configured:
         try:
             _RETRIEVER = SupabaseRetriever()
             return _RETRIEVER
         except Exception:
-            pass
+            logger.warning(
+                "Supabase retriever unavailable; using the local NumPy index",
+                exc_info=True,
+            )
     _RETRIEVER = LocalRetriever()
     return _RETRIEVER

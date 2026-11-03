@@ -160,8 +160,8 @@ def test_insert_is_idempotent_and_normalizes_chroma_metadata():
         metadata={"source": "guide.jsonl", "tags": ["auth", "http"]},
     )
 
-    assert asyncio.run(store.insert([chunk], [[0.1, 0.2]])) == 1
-    assert asyncio.run(store.insert([chunk], [[0.3, 0.4]])) == 1
+    assert asyncio.run(store.insert([chunk], [[0.1] * settings.embed_dim])) == 1
+    assert asyncio.run(store.insert([chunk], [[0.3] * settings.embed_dim])) == 1
     assert collection.count() == 1
     assert collection.rows["stable-id"]["metadata"]["tags"] == "auth, http"
 
@@ -181,13 +181,14 @@ def test_vector_store_uses_installed_chroma_collection_api(tmp_path):
         content="HTTP 401 requires valid authentication credentials",
         metadata={"source": "auth.jsonl", "tags": ["auth"]},
     )
+    vector = [1.0] + [0.0] * (settings.embed_dim - 1)
 
-    assert asyncio.run(store.insert([chunk], [[1.0, 0.0]])) == 1
+    assert asyncio.run(store.insert([chunk], [vector])) == 1
     dense = asyncio.run(
-        store.retrieve([1.0, 0.0], "authentication credentials", mode="dense")
+        store.retrieve(vector, "authentication credentials", mode="dense")
     )
     keyword = asyncio.run(
-        store.retrieve([1.0, 0.0], "authentication credentials", mode="keyword")
+        store.retrieve(vector, "authentication credentials", mode="keyword")
     )
     stats = asyncio.run(store.stats())
 

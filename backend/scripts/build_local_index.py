@@ -14,6 +14,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
+from app.ai.rag.batch_processor import batch_processor  # noqa: E402
 from app.ai.rag.embedding import embedding  # noqa: E402
 
 
@@ -31,7 +32,7 @@ def main():
     )
 
     vectors = np.asarray(
-        asyncio.run(embedding.embed_texts(df["chunk_text"].tolist())),
+        asyncio.run(batch_processor.embed_texts(df["chunk_text"].tolist())),
         dtype=float,
     )
     if vectors.ndim != 2 or vectors.shape[1] != embedding.dimensions:

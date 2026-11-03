@@ -54,9 +54,9 @@ apifix-ai/
 |---|---|---|
 | **`backend/app/routes/`** | `routes_test.py`<br>`routes_diagnose.py`<br>`routes_retest.py`<br>`routes_health.py`<br>`sse.py` | **API Controllers:**<br>• `/api/test`: Runs a request through the HTTPX tester engine.<br>• `/api/diagnose`: Streams Server-Sent Events (SSE) with observation, retrieved documentation chunks, diagnosis tokens, citations, and suggested patch.<br>• `/api/retest`: Applies the approved patch, executes the request, and computes before/after diffs.<br>• `/api/health`: Service health check. |
 | **`backend/app/ai/`** | `llm.py`<br>`prompts.py`<br>`context.py` | **LLM Brain:**<br>• `llm.py`: Multi-provider fallback adapter. Automatically attempts **Gemini** $\rightarrow$ **Groq** $\rightarrow$ **Mistral**. If primary provider fails or hits quota, seamlessly falls back to the next.<br>• `prompts.py`: System prompt enforcing citation groundings (`[KB-...]`), strict JSON patch schema, and prompt-injection defense.<br>• `context.py`: Combines user question + redacted HTTP request/response + retrieved evidence chunks into structured LLM context. |
-| **`backend/app/rag/`** | `retriever.py`<br>`query.py` | **Retrieval-Augmented Generation (Search Engine):**<br>• `retriever.py`: Hybrid search engine. Uses `SentenceTransformer` (`all-MiniLM-L6-v2`) to perform cosine similarity against the 384-dimensional vector database (`kb_embeddings.npy`). Also supports Supabase PostgreSQL with `pgvector` and Reciprocal Rank Fusion (RRF).<br>• `query.py`: Intelligently builds search queries from HTTP method, path, status code, error type, and user question. |
+| **`backend/app/ai/rag/`** | `retriever.py`<br>`pipeline.py`<br>`embedding.py`<br>`vector_store.py` | **Retrieval-Augmented Generation (Search Engine):**<br>• `retriever.py`: Local/Supabase retrieval over `gemini-embedding-001` vectors (768 dimensions). Chroma collections are per model/dimension; Supabase filters on `embedding_model` and `embedding_dim`. Hybrid mode uses dense-anchored weighted RRF.<br>• `pipeline.py`: Seeds the knowledge base, ingests uploads through the batch processor, and builds grounded context. |
 | **`backend/app/core/`** | `tester.py`<br>`retest.py`<br>`config.py`<br>`models.py`<br>`errors.py`<br>`security/`<br>`db/` | **Engine & Safety Layer:**<br>• `tester.py`: HTTPX client that executes requests with timeouts and classifies network outcomes (DNS errors, TLS errors, timeouts, HTTP statuses).<br>• `security/ssrf.py`: **SSRF Guard**. Resolves hostnames and strictly blocks private IP addresses (RFC 1918 `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, loopback `127.0.0.1`, cloud metadata `169.254.169.254`).<br>• `security/redactor.py`: **Credential Sanitizer**. Replaces Bearer tokens, API keys, passwords, and cookies with `<REDACTED>`.<br>• `security/approval.py`: **Safety Gate**. Enforces that state-changing operations (POST, PUT, DELETE) require explicit user approval (`approved=True`).<br>• `db/runs.py`: Persists diagnosis history and runs to SQLite (`data/runs.sqlite3`). |
-| **`backend/scripts/`** | `chunk_text.py`<br>`parse_openapi.py`<br>`validate_dataset.py`<br>`build_local_index.py`<br>`compile_kb.py` | **Data Ingestion Pipeline Tools:**<br>• `chunk_text.py`: Tokenizer measuring exact token counts; enforces $\le 256$ token limit for MiniLM.<br>• `parse_openapi.py`: Automatically converts OpenAPI 3.0/3.1 specs into citable documentation chunks.<br>• `validate_dataset.py`: Audits knowledge base for valid URLs, token sizes, schema integrity, and eval case coverage.<br>• `build_local_index.py`: Encodes all chunks into 384-dimensional vectors and outputs `.npy`, `.json`, and `.jsonl` index files. |
+| **`backend/scripts/`** | `chunk_text.py`<br>`parse_openapi.py`<br>`validate_dataset.py`<br>`build_local_index.py`<br>`compile_kb.py` | **Data Ingestion Pipeline Tools:**<br>• `chunk_text.py`: Tokenizer measuring exact token counts for chunk sizing; the MiniLM tokenizer is not used for embeddings.<br>• `parse_openapi.py`: Automatically converts OpenAPI 3.0/3.1 specs into citable documentation chunks.<br>• `validate_dataset.py`: Audits knowledge base for valid URLs, token sizes, schema integrity, and eval case coverage.<br>• `build_local_index.py`: Encodes all chunks into 768-dimensional Gemini vectors and outputs `.npy`, `.json`, and `.jsonl` index files. |
 | **`frontend/`** | `src/App.tsx`<br>`src/components/`<br>`src/data/presets.ts` | **User Interface (React + Vite + Tailwind):**<br>• Matches the workspace design with a 3-column layout.<br>• Left: Collections & Recent Tests.<br>• Center: Request Builder with tabs (Body, Headers, Auth, Params) and Response viewer.<br>• Right: AI Diagnosis card with progress pills (`Tested`, `Retrieved`, `Diagnosed`, `Verify`), suggested fix, interactive citation cards, and "Apply fix and re-run" button. |
 | **`data/`** | `kb_seed.csv`<br>`kb_embeddings.npy`<br>`kb_meta.json`<br>`kb_chunks.jsonl`<br>`raw/` | **Knowledge Base & Artifacts:**<br>• Stores the curated 69-chunk knowledge base, raw downloaded OpenAPI specs, and binary vector embeddings matrix. |
 | **`eval/`** | `retrieval_eval.py`<br>`run_eval.py`<br>`evidence_map.json` | **Benchmark & Evaluation Suite:**<br>• Runs the 50 standard test cases (auth, endpoint typos, schema validation, rate limits, network timeouts, prompt injection) and scores Recall@5 and MRR. |
@@ -71,7 +71,7 @@ A common question is: *What in the project is a mock, and what is real?*
 flowchart LR
     subgraph REAL ["Real Components (Production-Grade)"]
         R1["Real Documentation Chunks<br/>(MDN, RFC 9110, HTTPX, FastAPI)"]
-        R2["Real Vector Embeddings<br/>(MiniLM 384-dimensional vectors)"]
+        R2["Real Vector Embeddings<br/>(Gemini 768-dimensional vectors)"]
         R3["Real HTTP Client Engine<br/>(HTTPX network executor)"]
         R4["Real Security Guards<br/>(SSRF DNS blocker & Token Redactor)"]
         R5["Real React Frontend<br/>(Live SSE streaming & proxying)"]
@@ -89,7 +89,7 @@ flowchart LR
 | Component | Is it Mock or Real? | Exact Details |
 |---|---|---|
 | **Documentation Knowledge Base** | **REAL** | **69 authoritative chunks** from official sources: MDN Web Docs (status codes & CORS), RFC 9110/9111 HTTP semantics, official Python HTTPX documentation, FastAPI validation documentation, Axios error handling, and OWASP security standards. |
-| **Vector Embeddings** | **REAL** | Built with `sentence-transformers/all-MiniLM-L6-v2`. Every chunk is converted into an actual **384-float vector** stored in `data/kb_embeddings.npy` and queried via cosine similarity dot-products. |
+| **Vector Embeddings** | **REAL** | Built with Google `gemini-embedding-001` (768 dimensions), the same model family as `cloud_llm`. Every chunk is converted into an actual **768-float vector** stored in `data/kb_embeddings.npy` (local fallback) and Chroma/Supabase, then queried via cosine similarity. |
 | **HTTP Request Execution** | **REAL** | `backend/app/core/tester.py` uses genuine `httpx.AsyncClient` that opens real TCP sockets, sends real HTTP requests, measures genuine millisecond latency, and checks real SSL certificates. |
 | **Network & SSRF Guard** | **REAL** | `backend/app/core/security/ssrf.py` performs real OS `socket.getaddrinfo()` lookups and inspects IP ranges against CIDR masks to block internal networks. |
 | **OpenAPI Specification** | **REAL** | Downloaded genuine Swagger Petstore OpenAPI 3.0.4 specification (`data/raw/petstore-openapi.json`), parsed using our custom `parse_openapi.py` tool. |
@@ -111,7 +111,7 @@ flowchart LR
 | **Folder Architecture** | **100% Complete** | Modular structure (`routes`, `ai`, `rag`, `core`, `uploads`) fully implemented with zero import errors. |
 | **Data Ingestion Pipeline** | **100% Complete** | `chunk_text.py`, `parse_openapi.py`, `validate_dataset.py`, and `compile_kb.py` built and operational. |
 | **Knowledge Base Dataset** | **100% Complete** | 69 real chunks compiled in `data/kb_seed.csv` and `data/kb_chunks.jsonl`. Verified: **0 errors, 0 warnings**. |
-| **Vector Indexing & RAG** | **100% Complete** | 384-dim dense vectors generated in `data/kb_embeddings.npy`. **Recall@5 = 1.0 (100% accuracy on dev cases)**. |
+| **Vector Indexing & RAG** | **100% Complete** | 768-dim Gemini vectors generated in `data/kb_embeddings.npy` and Chroma/Supabase. Dev retrieval: dense Recall@5 0.971 / MRR 0.623; dense-anchored hybrid Recall@5 1.000 / MRR 0.629. |
 | **Security & Safety Layer** | **100% Complete** | SSRF blocker, token redactor, and approval gate pass **10/10 pytest unit tests**. |
 | **HTTP Testing & Retesting** | **100% Complete** | Verified end-to-end: `GET /v1/profile` produces `401`; applying patch produces `200 OK` with diff verdict `changed`. |
 | **User Interface (React)** | **100% Complete** | Modern 3-column workspace running on `http://localhost:5173`, proxying `/api` requests to backend on port 8000. |
@@ -147,7 +147,7 @@ sequenceDiagram
     participant Security as Security & Redactor
     participant Tester as HTTPX Engine
     participant Target as Target API / Mock (:8001)
-    participant RAG as Vector Search (MiniLM)
+    participant RAG as Vector Search (Gemini)
     participant LLM as AI Provider (Gemini/Groq)
 
     User->>UI: Clicks "Run test"

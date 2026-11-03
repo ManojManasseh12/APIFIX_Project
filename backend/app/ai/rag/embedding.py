@@ -40,9 +40,11 @@ def _api_key() -> str:
 class Embedding:
     """Gemini embedding client (same model family as cloud_llm)."""
 
-    def __init__(self, batch_size: int = 64):
+    def __init__(self, batch_size: int = 64, prompt_cache_size: int = 256):
         self.batch_size = batch_size
+        self.prompt_cache_size = prompt_cache_size
         self._client: genai.Client | None = None
+        self._prompt_cache: dict[tuple[str, int, str], tuple[float, ...]] = {}
 
     @property
     def model_name(self) -> str:
@@ -73,25 +75,44 @@ class Embedding:
         )
 
     async def embed_prompt(self, text: str) -> list[float]:
-        """Embed a user query for retrieval."""
+        """Embed a user query for retrieval, reusing identical queries."""
+        key = (self.model_name, self.dimensions, text)
+        cached = self._prompt_cache.get(key)
+        if cached is not None:
+            return list(cached)
+
         vectors = await self.embed_texts([text], task_type="RETRIEVAL_QUERY")
-        return vectors[0]
+        vector = vectors[0]
+        if len(self._prompt_cache) >= self.prompt_cache_size:
+            self._prompt_cache.pop(next(iter(self._prompt_cache)))
+        self._prompt_cache[key] = tuple(vector)
+        return vector
 
     async def embed_texts(
         self,
         texts: Sequence[str],
         task_type: str = "RETRIEVAL_DOCUMENT",
+        *,
+        max_attempts: int | None = None,
+        batch_size: int | None = None,
     ) -> list[list[float]]:
         """Embed texts in batches, retrying transient Gemini failures."""
         if not texts:
             return []
 
+        attempts = MAX_EMBEDDING_ATTEMPTS if max_attempts is None else max_attempts
+        size = batch_size or self.batch_size
+        if attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if size < 1:
+            raise ValueError("batch_size must be at least 1")
+
         client = self._get_client()
         vectors: list[list[float]] = []
-        for start in range(0, len(texts), self.batch_size):
-            batch = list(texts[start : start + self.batch_size])
+        for start in range(0, len(texts), size):
+            batch = list(texts[start : start + size])
             vectors.extend(
-                await self._embed_batch(client, batch, task_type)
+                await self._embed_batch(client, batch, task_type, attempts)
             )
         return vectors
 
@@ -100,8 +121,9 @@ class Embedding:
         client: genai.Client,
         batch: list[str],
         task_type: str,
+        attempts: int,
     ) -> list[list[float]]:
-        for attempt in range(1, MAX_EMBEDDING_ATTEMPTS + 1):
+        for attempt in range(1, attempts + 1):
             try:
                 response = await client.aio.models.embed_content(
                     model=self.model_name,
@@ -126,7 +148,7 @@ class Embedding:
                         )
                 return vectors
             except Exception as exc:
-                if attempt >= MAX_EMBEDDING_ATTEMPTS or not is_retryable_error(exc):
+                if attempt >= attempts or not is_retryable_error(exc):
                     raise
                 delay = _retry_delay(exc)
                 if delay is None:
@@ -137,7 +159,7 @@ class Embedding:
                 logger.warning(
                     "Gemini embedding attempt %d/%d failed (%s); retrying in %.1fs",
                     attempt,
-                    MAX_EMBEDDING_ATTEMPTS,
+                    attempts,
                     exc,
                     delay,
                 )

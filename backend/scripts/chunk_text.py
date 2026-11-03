@@ -7,26 +7,20 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from sentence_transformers import SentenceTransformer
 
-_MODEL = None
-_MODEL_NAME = None
+_MODELS: dict[str, SentenceTransformer] = {}
 _MODEL_LOCK = threading.Lock()
 
 
 def get_model(model_name: str | None = None):
-    global _MODEL, _MODEL_NAME
     requested_name = model_name or os.getenv(
         "CHUNK_TOKENIZER_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
     )
     with _MODEL_LOCK:
-        if _MODEL is None:
-            _MODEL = SentenceTransformer(requested_name)
-            _MODEL_NAME = requested_name
-        elif requested_name != _MODEL_NAME:
-            raise RuntimeError(
-                f"Model {_MODEL_NAME!r} is already loaded; "
-                f"cannot switch to {requested_name!r}"
-            )
-    return _MODEL
+        model = _MODELS.get(requested_name)
+        if model is None:
+            model = SentenceTransformer(requested_name)
+            _MODELS[requested_name] = model
+    return model
 
 
 def token_count(text: str) -> int:

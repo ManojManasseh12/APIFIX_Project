@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.ai.rag.batch_processor import batch_processor
 from app.ai.rag.data_loader import data_process
 from app.ai.rag.embedding import embedding
 from app.ai.rag.models import Chunk, SearchHit
@@ -35,14 +36,35 @@ class RAGPipeline:
     async def ingest(
         self, folder: str | Path, source_files: list[str] | None = None
     ) -> dict[str, Any]:
-        chunks = await data_process.process_folder(folder, source_files)
-        vectors = await embedding.embed_chunks(chunks)
-        count = await self.store.insert(chunks, vectors)
+        files = data_process.select_files(folder, source_files)
+        added = 0
+        sources: set[str] = set()
+        statuses: list[dict[str, Any]] = []
+
+        batch_size = max(1, settings.batch_file_size)
+        for start in range(0, len(files), batch_size):
+            batch = files[start : start + batch_size]
+            results = await batch_processor.process_files(
+                batch, data_process.load_file, self.store
+            )
+            for path, result in results:
+                statuses.append({"file": path.name, **result})
+                if result["status"] == "completed":
+                    added += int(result["chunks_added"])
+                    sources.add(path.name)
+
+        failed = [
+            status for status in statuses if status["status"] == "failed"
+        ]
+        if statuses and len(failed) == len(statuses):
+            raise ValueError(
+                "; ".join(status["message"] for status in failed)
+            )
+
         return {
-            "chunks_added": count,
-            "sources": sorted(
-                {str(chunk.metadata.get("source") or "") for chunk in chunks}
-            ),
+            "chunks_added": added,
+            "sources": sorted(sources),
+            "files": statuses,
         }
 
     async def retrieve(

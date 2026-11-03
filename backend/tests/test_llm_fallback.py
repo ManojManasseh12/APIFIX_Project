@@ -10,6 +10,7 @@ from app.ai.llm import (
     stream_with_fallback,
 )
 from app.core.errors import StreamInterrupted
+from app.core.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +29,9 @@ def clean_provider_env(monkeypatch):
         "MISTRAL_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(settings, "llm_max_attempts_per_provider", 3)
+    monkeypatch.setattr(settings, "llm_retry_base_delay_s", 0.0)
+    monkeypatch.setattr(settings, "llm_retry_max_delay_s", 0.0)
 
 
 class FakeProvider:
@@ -36,11 +40,13 @@ class FakeProvider:
         self.label = name
         self.tokens = tokens
         self.error = error
+        self.attempts = 0
 
     def available(self) -> bool:
         return True
 
     async def stream(self, system: str, user: str):
+        self.attempts += 1
         for token in self.tokens:
             yield token
         if self.error is not None:
@@ -93,6 +99,44 @@ def test_falls_back_to_next_model_before_first_token():
         ("gemini:model-b", " world"),
     ]
     assert skipped == [("gemini:model-a", "quota_exceeded", True, False)]
+    assert providers[0].attempts == 3
+
+
+def test_retries_same_model_then_succeeds(monkeypatch):
+    class FlakyProvider:
+        name = "gemini"
+        label = "gemini:model-a"
+
+        def __init__(self):
+            self.attempts = 0
+
+        def available(self) -> bool:
+            return True
+
+        async def stream(self, system: str, user: str):
+            self.attempts += 1
+            if self.attempts < 3:
+                raise QuotaError("429 quota")
+            yield "recovered"
+
+    provider = FlakyProvider()
+    skipped = []
+
+    chunks = collect(
+        [provider],
+        on_skip=lambda *args: skipped.append(args),
+    )
+
+    assert chunks == [("gemini:model-a", "recovered")]
+    assert provider.attempts == 3
+    assert skipped == []
+
+
+def test_does_not_retry_auth_errors():
+    provider = FakeProvider("gemini:model-a", [], AuthError("bad key"))
+    with pytest.raises(Exception):
+        collect([provider])
+    assert provider.attempts == 1
 
 
 def test_restarts_on_next_model_after_partial_output_when_enabled():

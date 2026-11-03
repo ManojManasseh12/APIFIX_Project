@@ -196,8 +196,6 @@ MISTRAL_MODEL=
 
 # Database
 DATABASE_URL=postgresql://postgres.<ref>:<password>@<host>:5432/postgres?sslmode=require
-SUPABASE_URL=
-SUPABASE_SERVICE_KEY=
 
 # App
 MOCK_BASE_URL=http://localhost:8001
@@ -426,8 +424,6 @@ class Settings(BaseSettings):
     mistral_model: str = ""
 
     database_url: str = ""
-    supabase_url: str = ""
-    supabase_service_key: str = ""
 
     mock_base_url: str = "http://localhost:8001"
     retrieval_backend: str = "supabase"
@@ -3277,8 +3273,6 @@ apifix-ai/
 | `GROQ_MODEL` | Yes | `openai/gpt-oss-20b` | Check current catalogue |
 | `MISTRAL_MODEL` | No | from console | Check current catalogue |
 | `DATABASE_URL` | Yes | `postgresql://...` | Supabase pooler if needed |
-| `SUPABASE_URL` | No | `https://...` | Only if using the client |
-| `SUPABASE_SERVICE_KEY` | No | `...` | Never expose |
 | `MOCK_BASE_URL` | Yes | `http://localhost:8001` | Local |
 | `RETRIEVAL_BACKEND` | Yes | `supabase` or `local` | Fallback switch |
 | `ALLOWED_HOSTS` | Yes | `localhost:8001,...` | Exact `host:port` |

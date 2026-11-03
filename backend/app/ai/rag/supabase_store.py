@@ -3,6 +3,7 @@ import threading
 from datetime import date
 from typing import Any
 
+from app.ai.rag.fusion import dense_anchored_rrf
 from app.ai.rag.models import Chunk, SearchHit
 from app.core.config import settings
 
@@ -162,13 +163,14 @@ class SupabaseStore:
         dense = self._search_dense(query_vector, candidate_limit, api_name)
         keyword = self._search_keyword(query_text, candidate_limit, api_name)
 
-        fused: dict[str, float] = {}
-        for ranking in (
+        fused = dense_anchored_rrf(
             [row["chunk_id"] for row in dense],
             [row["chunk_id"] for row in keyword],
-        ):
-            for rank, chunk_id in enumerate(ranking, start=1):
-                fused[chunk_id] = fused.get(chunk_id, 0.0) + 1.0 / (60 + rank)
+            dense_weight=settings.rrf_dense_weight,
+            keyword_weight=settings.rrf_keyword_weight,
+            k=settings.rrf_k,
+            dense_anchor=settings.rrf_dense_anchor,
+        )
 
         records = {
             row["chunk_id"]: row
@@ -176,9 +178,7 @@ class SupabaseStore:
         }
         return [
             self._hit(records[chunk_id], score)
-            for chunk_id, score in sorted(
-                fused.items(), key=lambda item: (-item[1], item[0])
-            )[:k]
+            for chunk_id, score in fused[:k]
         ]
 
     def _search_dense(
