@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.services.retriever import get_retriever  # noqa: E402
+from app.ai.rag.retriever import get_retriever  # noqa: E402
 
 
 def recall5(predicted, expected):

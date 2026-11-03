@@ -113,13 +113,18 @@ class DataProcess:
                             **{
                                 key: record[key]
                                 for key in (
+                                    "source_type",
                                     "source_title",
                                     "source_url",
                                     "api_name",
+                                    "api_version",
                                     "method",
                                     "path",
                                     "section",
                                     "page",
+                                    "license",
+                                    "retrieved_at",
+                                    "token_count",
                                 )
                                 if key in record and key not in metadata
                             },

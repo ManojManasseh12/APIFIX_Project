@@ -1,0 +1,13 @@
+scenario_id,target,method,url,headers_redacted,body,expected_status,safe_by_default,notes
+TA-001,local_mock,GET,http://localhost:8001/v1/profile,none,,401,yes,Missing Authorization header
+TA-002,local_mock,GET,http://localhost:8001/v1/profile,Authorization: Bearer <REDACTED>,,200,yes,Valid token; use retest after AUTH-001 fix
+TA-003,local_mock,POST,http://localhost:8001/v1/orders,Authorization: Bearer <REDACTED>,"{""items"":[{""sku"":""A1"",""quantity"":2}]}",201,no,State-changing; requires user approval; mock resets after run
+TA-004,local_mock,POST,http://localhost:8001/v1/orders,Authorization: Bearer <REDACTED>,"{""items"":""two""}",422,no,Schema violation; no state change expected on 422
+TA-005,local_mock,GET,http://localhost:8001/v1/search,none,,429,yes,Mock returns Retry-After: 30 after 100 calls
+TA-006,local_mock,GET,http://localhost:8001/v1/slow-report,none,,timeout,yes,Mock sleeps 15 s; client timeout 5 s
+TA-007,local_mock,GET,http://localhost:8001/v1/reports,none,,500,yes,Mock injected server error
+TA-008,postman_echo,GET,https://postman-echo.com/get,Accept: application/json,,200,yes,Inspect request echo; verify endpoint still responds before demo
+TA-009,postman_echo,GET,https://postman-echo.com/status/401,none,,401,yes,Status-echo endpoint; verify before demo
+TA-010,petstore,GET,https://petstore3.swagger.io/api/v3/pet/findByStatus?status=available,Accept: application/json,,200,yes,Public demo API; verify availability and rate limits
+TA-011,jsonplaceholder,GET,https://jsonplaceholder.typicode.com/posts/1,none,,200,yes,Sample REST resource; not for error reproduction
+TA-012,local_mock,GET,http://localhost:9/,none,,blocked_by_policy,yes,SSRF guard must block localhost before connecting

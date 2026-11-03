@@ -5,9 +5,9 @@ from typing import Any, Protocol
 from app.ai.rag.data_loader import data_process
 from app.ai.rag.embedding import embedding
 from app.ai.rag.models import Chunk, SearchHit
-from app.ai.rag.vector_store import vector_store
+from app.ai.rag.vector_store import get_store, vector_store
 from app.core.config import settings
-from app.rag.retriever import RetrievalResult, detect_version, get_retriever
+from app.ai.rag.retriever import RetrievalResult, detect_version, get_retriever
 
 
 class VectorStoreInterface(Protocol):
@@ -70,7 +70,7 @@ async def retrieve_for_api(
         )
     where = {"api_name": api_name} if api_name else None
     query_vector = await embedding.embed_prompt(question)
-    dense = await vector_store.retrieve(
+    dense = await pipeline.store.retrieve(
         query_vector, question, k=20, mode="dense", where=where
     )
     requested_version = detect_version(path)
@@ -88,7 +88,7 @@ async def retrieve_for_api(
     if not dense or dense[0].score < 0.15:
         return RetrievalResult(insufficient=True, query=question)
 
-    hits = await vector_store.retrieve(
+    hits = await pipeline.store.retrieve(
         query_vector, question, k=6, mode="hybrid", where=where
     )
     chunks = [
@@ -115,7 +115,7 @@ async def retrieve_for_api(
     )
 
 
-pipeline = RAGPipeline()
+pipeline = RAGPipeline(store=get_store())
 
 _seed_lock: asyncio.Lock | None = None
 _seed_loop: asyncio.AbstractEventLoop | None = None
@@ -140,7 +140,7 @@ async def ensure_seeded() -> dict[str, Any]:
     first use keeps one retrieval store and makes /search and /kb/stats agree
     with what the assistant actually cites.
     """
-    stats = await vector_store.stats()
+    stats = await pipeline.store.stats()
     if not settings.seed_kb or stats["chunk_count"] > 0:
         return stats
 
@@ -149,10 +149,10 @@ async def ensure_seeded() -> dict[str, Any]:
         return stats
 
     async with _seed_lock_for_current_loop():
-        stats = await vector_store.stats()
+        stats = await pipeline.store.stats()
         if stats["chunk_count"] == 0:
             await pipeline.ingest(seed_file.parent, [seed_file.name])
-    return await vector_store.stats()
+    return await pipeline.store.stats()
 
 
 async def ingest(

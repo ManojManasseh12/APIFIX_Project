@@ -1,11 +1,11 @@
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.ai.rag.data_loader import SUPPORTED_EXTENSIONS
-from app.ai.rag.vector_store import vector_store
+from app.ai.rag.pipeline import pipeline
 from app.core.config import settings
+from app.utils.ids import generate_uuid
 
 router = APIRouter(tags=["knowledge-base"])
 
@@ -39,7 +39,7 @@ async def upload_files(files: list[UploadFile] = File(...)):
         for upload, name in zip(files, names):
             original = Path(name)
             destination = settings.upload_dir / (
-                f"{original.stem}-{uuid.uuid4().hex[:8]}{original.suffix.lower()}"
+                f"{original.stem}-{generate_uuid()[:8]}{original.suffix.lower()}"
             )
             size = 0
             with destination.open("xb") as output:
@@ -85,6 +85,6 @@ async def delete_file(name: str):
     path = settings.upload_dir / safe_name
     if not path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    chunks_deleted = await vector_store.delete_source(safe_name)
+    chunks_deleted = await pipeline.store.delete_source(safe_name)
     path.unlink()
     return {"deleted": safe_name, "chunks_deleted": chunks_deleted}

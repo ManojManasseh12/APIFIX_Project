@@ -276,7 +276,7 @@ def test_upload_list_delete_and_api_aliases(tmp_path, monkeypatch):
         assert source.endswith(".txt")
         return 2
 
-    monkeypatch.setattr(upload_routes.vector_store, "delete_source", delete_source)
+    monkeypatch.setattr(upload_routes.pipeline.store, "delete_source", delete_source)
     client = TestClient(app)
     response = client.post(
         "/api/upload",
@@ -346,10 +346,10 @@ def test_ingest_and_search_routes_return_expected_shapes(tmp_path, monkeypatch):
 
 
 def test_diagnose_stream_only_accepts_retrieved_citations(monkeypatch):
-    from app.core.db import runs
+    from app.db import runs
     from app.core.models import Observation
-    from app.rag.retriever import RetrievalResult
-    from app.routes import routes_diagnose
+    from app.ai.rag.retriever import RetrievalResult
+    from app.routes import diagnose as routes_diagnose
 
     async def execute(spec):
         return Observation(request_id="test", status=401)

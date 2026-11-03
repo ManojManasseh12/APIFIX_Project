@@ -15,6 +15,8 @@ React UI
 
 ## Database schema
 
+The copy-paste version lives in [`backend/sql/schema.sql`](../backend/sql/schema.sql).
+
 ```sql
 create extension if not exists vector;
 
@@ -37,6 +39,7 @@ create table if not exists kb_chunks (
   embedding_model text not null,
   embedding_dim int not null,
   embedding_pipeline_version text not null,
+  source_file text,
   fts tsvector generated always as (to_tsvector('english', chunk_text)) stored
 );
 
@@ -48,6 +51,9 @@ create index if not exists kb_chunks_fts_idx
 
 create index if not exists kb_chunks_filter_idx
   on kb_chunks (api_name, api_version, method);
+
+create index if not exists kb_chunks_source_file_idx
+  on kb_chunks (source_file);
 ```
 
 ## Design decisions

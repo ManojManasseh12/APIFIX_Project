@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     chroma_dir: Path = BACKEND_DIR / "data" / "chroma"
+    runs_db: Path = BACKEND_DIR.parent / "data" / "runs.sqlite3"
     upload_dir: Path = BACKEND_DIR / "uploads"
     seed_kb: bool = True
     seed_kb_file: Path = BACKEND_DIR.parent / "data" / "kb_chunks.jsonl"

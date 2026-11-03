@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import threading
 from collections import Counter
@@ -234,3 +235,30 @@ class VectorStore:
 
 
 vector_store = VectorStore()
+
+_logger = logging.getLogger(__name__)
+
+
+def get_store():
+    """Return the configured retrieval store.
+
+    Supabase is used when ``RETRIEVAL_BACKEND=supabase`` and ``DATABASE_URL``
+    is set. If the database cannot be reached (or the schema is missing), the
+    app logs a warning and keeps working against the local Chroma index.
+    """
+    if (
+        settings.retrieval_backend.strip().lower() == "supabase"
+        and settings.database_url.strip()
+    ):
+        try:
+            from app.ai.rag.supabase_store import SupabaseStore
+
+            _logger.info("Using Supabase pgvector retrieval backend")
+            return SupabaseStore()
+        except Exception as exc:  # pragma: no cover - depends on external DB
+            _logger.warning(
+                "Supabase retrieval backend unavailable (%s); falling back to "
+                "the local Chroma index",
+                exc,
+            )
+    return vector_store

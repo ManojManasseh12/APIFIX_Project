@@ -75,17 +75,22 @@ libreoffice --headless --convert-to 'docx:MS Word 2007 XML' docs/APIFix_AI_Full_
 ## Repository layout
 
 ```text
-backend/app/        FastAPI app: tester, retrievers, LLM, security, routes
-backend/app/ai/rag/ RAG loading, chunking, embeddings, ChromaDB, and pipeline
-backend/uploads/    Local uploaded documents (gitignored)
-backend/data/chroma/ Persistent ChromaDB files (gitignored)
-backend/mock_api/   deterministic local API
-backend/scripts/    provider check, ingestion, local index, scenario runner
-backend/tests/      unit, route, retrieval, security, and seed tests
-data/               datasets + knowledge-base seed
-eval/               case requests, evidence map, evaluation runner
-frontend/           React + Vite + Tailwind UI
-docs/               plan, process guide, demo script, limitations
+backend/app/main.py  FastAPI app: lifespan startup, CORS, router wiring
+backend/app/core/    settings, domain models, errors, security, tester, retest
+backend/app/db/      SQLite connection, schema initialisation, run history
+backend/app/ai/      LLM fallback chain, prompts, prompt context builders
+backend/app/ai/rag/  RAG loading, chunking, embeddings, ChromaDB, and pipeline
+backend/app/routes/  one APIRouter per feature (health, test, diagnose, ask, ...)
+backend/app/utils/   shared helpers (UUID generation)
+backend/uploads/     local uploaded documents (gitignored)
+backend/data/chroma/ persistent ChromaDB files (gitignored)
+backend/mock_api/    deterministic local API
+backend/scripts/     provider check, ingestion, local index, scenario runner
+backend/tests/       unit, route, retrieval, security, and seed tests
+data/                datasets + knowledge-base seed
+eval/                case requests, evidence map, evaluation runner
+frontend/            React + Vite + Tailwind UI
+docs/                plan, process guide, demo script, limitations
 ```
 
 ## Quick start
@@ -217,18 +222,59 @@ curl -N -X POST http://127.0.0.1:8000/api/ask \
 ```
 
 
-## Supabase (optional but required for the deck's architecture)
+## Supabase pgvector
 
-1. Create a project and enable the `vector` extension.
-2. Run the schema in `docs/ARCHITECTURE.md`.
-3. Set `DATABASE_URL` and `RETRIEVAL_BACKEND=supabase`.
-4. Ingest:
+The app uses Supabase only when `RETRIEVAL_BACKEND=supabase` and
+`DATABASE_URL` is set. Otherwise it uses the local Chroma index. Both stores
+implement the same interface, so `/api/search`, `/api/diagnose`, `/api/ask`,
+uploads, deletes, and `eval/run_eval.py` work against either one.
 
-```bash
-python backend/scripts/ingest.py
-```
+1. Create a Supabase project and open **SQL Editor**.
+2. Run [`backend/sql/schema.sql`](backend/sql/schema.sql) once. It enables the
+   `vector` extension and creates `kb_chunks` with HNSW and full-text indexes.
+3. Copy the **Session pooler** connection string from **Project Settings →
+   Database**. Replace `[YOUR-PASSWORD]` and URL-encode special characters
+   (`@` → `%40`, `#` → `%23`, `:` → `%3A`). Keep `?sslmode=require`.
+4. Set these in `.env`:
 
-If Supabase is unavailable, set `RETRIEVAL_BACKEND=local`; the local index is enough for the demo.
+   ```bash
+   DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+   RETRIEVAL_BACKEND=supabase
+   ```
+
+   `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are only for the REST/JS client;
+   the pgvector retriever does not need them.
+5. Install the Python deps (already listed in `backend/requirements.txt`):
+
+   ```bash
+   .venv/bin/pip install -r backend/requirements.txt
+   ```
+
+6. Load the 88-chunk seed corpus:
+
+   ```bash
+   python backend/scripts/ingest.py
+   ```
+
+   Alternatively, start the API with `SEED_KB=true` and the first search,
+   diagnosis, or KB-stats call loads `data/kb_chunks.jsonl` into Supabase
+   automatically.
+
+7. Verify the connection and retrieval:
+
+   ```bash
+   python backend/scripts/check_supabase.py
+   ```
+
+   It prints the store type, chunk count, and top hybrid hits. Restart the API
+   after changing `.env`, then try `/api/search` or the Ask API tab.
+
+If the database is unreachable, the app logs a warning and falls back to
+Chroma. Set `RETRIEVAL_BACKEND=local` to make that explicit. The schema is
+`vector(384)` because MiniLM produces 384-dimensional embeddings; if you change
+`EMBED_MODEL`, update the column dimension and re-ingest. Uploads written while
+one backend is active are not copied to the other, so re-upload or run
+`ingest.py` after switching stores.
 
 ## Tests
 

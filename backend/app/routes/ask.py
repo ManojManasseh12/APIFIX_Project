@@ -9,7 +9,7 @@ from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.routes.sse import sse
 
-router = APIRouter()
+router = APIRouter(tags=["assistant"])
 
 
 @router.post("/ask")

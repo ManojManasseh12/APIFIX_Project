@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.core.config import settings
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 _MODEL = None
 
 

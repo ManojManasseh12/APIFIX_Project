@@ -34,18 +34,33 @@ def main(csv_path: str | None = None):
                       chunk_id, source_type, source_url, source_title, api_name,
                       api_version, method, path, section, page, license, retrieved_at,
                       token_count, chunk_text, embedding, embedding_model,
-                      embedding_dim, embedding_pipeline_version
+                      embedding_dim, embedding_pipeline_version, source_file
                     ) values (
                       %(chunk_id)s, %(source_type)s, %(source_url)s, %(source_title)s,
                       %(api_name)s, %(api_version)s, %(method)s, %(path)s, %(section)s,
                       %(page)s, %(license)s, %(retrieved_at)s, %(token_count)s,
-                      %(chunk_text)s, %(embedding)s, %(embedding_model)s, 384, %(pipeline)s
+                      %(chunk_text)s, %(embedding)s, %(embedding_model)s,
+                      %(embedding_dim)s, %(pipeline)s, %(source_file)s
                     )
                     on conflict (chunk_id) do update set
+                      source_type = excluded.source_type,
+                      source_url = excluded.source_url,
+                      source_title = excluded.source_title,
+                      api_name = excluded.api_name,
+                      api_version = excluded.api_version,
+                      method = excluded.method,
+                      path = excluded.path,
+                      section = excluded.section,
+                      page = excluded.page,
+                      license = excluded.license,
+                      retrieved_at = excluded.retrieved_at,
                       chunk_text = excluded.chunk_text,
                       embedding = excluded.embedding,
                       token_count = excluded.token_count,
-                      embedding_pipeline_version = excluded.embedding_pipeline_version
+                      embedding_model = excluded.embedding_model,
+                      embedding_dim = excluded.embedding_dim,
+                      embedding_pipeline_version = excluded.embedding_pipeline_version,
+                      source_file = excluded.source_file
                     """,
                     {
                         **row,
@@ -53,7 +68,9 @@ def main(csv_path: str | None = None):
                         "token_count": token_count(model, row["chunk_text"]),
                         "embedding": embedding,
                         "embedding_model": MODEL_NAME,
+                        "embedding_dim": len(embedding),
                         "pipeline": PIPELINE,
+                        "source_file": row.get("source_file") or path.name,
                     },
                 )
     print(f"upserted {len(df)} chunks")

@@ -1,27 +1,27 @@
 import json
-import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from app.routes.sse import sse
-from app.core.errors import AllProvidersFailed, ApprovalRequired, StreamInterrupted
-from app.core.db import runs
-from app.core.models import RequestSpec
-from app.core.security.approval import require_approval
 from app.ai.context import build_context
 from app.ai.llm import get_providers, stream_with_fallback
 from app.ai.prompts import CITATION_RE, PATCH_RE, SYSTEM_PROMPT
-from app.rag.query import build_query
 from app.ai.rag.pipeline import retrieve_for_api
+from app.ai.rag.query import build_query
+from app.core.errors import AllProvidersFailed, ApprovalRequired, StreamInterrupted
+from app.core.models import RequestSpec
+from app.core.security.approval import require_approval
 from app.core.tester import execute
+from app.db import runs
+from app.routes.sse import sse
+from app.utils.ids import generate_uuid
 
-router = APIRouter()
+router = APIRouter(tags=["diagnosis"])
 
 
 @router.post("/diagnose")
 async def diagnose(spec: RequestSpec, request: Request):
-    run_id = str(uuid.uuid4())
+    run_id = generate_uuid()
 
     async def events():
         try:

@@ -1,5 +1,4 @@
 import time
-import uuid
 
 import httpx
 
@@ -8,12 +7,13 @@ from app.core.errors import DNSError, PolicyError
 from app.core.models import Observation, RequestSpec
 from app.core.security.redactor import redact_headers, redact_text
 from app.core.security.ssrf import check_url
+from app.utils.ids import generate_uuid
 
 MAX_BODY_BYTES = 256 * 1024
 
 
 async def execute(spec: RequestSpec) -> Observation:
-    request_id = str(uuid.uuid4())
+    request_id = generate_uuid()
     headers = dict(spec.headers)
 
     try:

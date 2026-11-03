@@ -7,7 +7,7 @@ from app.core.security.approval import require_approval
 from app.core.retest import apply_patch, diff
 from app.core.tester import execute
 
-router = APIRouter()
+router = APIRouter(tags=["retest"])
 
 
 class RetestIn(BaseModel):
