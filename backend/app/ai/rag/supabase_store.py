@@ -73,6 +73,12 @@ class SupabaseStore:
             raise ValueError("Each chunk must have exactly one embedding vector")
         if not chunks:
             return 0
+        for vector in vectors:
+            if len(vector) != settings.embed_dim:
+                raise ValueError(
+                    f"Expected {settings.embed_dim}-dimensional vectors from "
+                    f"{settings.embed_model}, received {len(vector)}."
+                )
 
         rows = [self._row(chunk, vector) for chunk, vector in zip(chunks, vectors)]
         with self._lock, self.conn.cursor() as cur:
@@ -187,10 +193,20 @@ class SupabaseStore:
                        1 - (embedding <=> %s) as score
                 from kb_chunks
                 where (%s is null or api_name = %s)
+                  and embedding_model = %s
+                  and embedding_dim = %s
                 order by embedding <=> %s
                 limit %s
                 """,
-                (Vector(vector), api_name, api_name, Vector(vector), limit),
+                (
+                    Vector(vector),
+                    api_name,
+                    api_name,
+                    settings.embed_model,
+                    settings.embed_dim,
+                    Vector(vector),
+                    limit,
+                ),
             )
             columns = [column.name for column in cur.description]
             return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -208,10 +224,20 @@ class SupabaseStore:
                 from kb_chunks
                 where fts @@ websearch_to_tsquery('english', %s)
                   and (%s is null or api_name = %s)
+                  and embedding_model = %s
+                  and embedding_dim = %s
                 order by score desc
                 limit %s
                 """,
-                (query, query, api_name, api_name, limit),
+                (
+                    query,
+                    query,
+                    api_name,
+                    api_name,
+                    settings.embed_model,
+                    settings.embed_dim,
+                    limit,
+                ),
             )
             columns = [column.name for column in cur.description]
             return [dict(zip(columns, row)) for row in cur.fetchall()]

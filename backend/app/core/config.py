@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     upload_dir: Path = BACKEND_DIR / "uploads"
     seed_kb: bool = True
     seed_kb_file: Path = BACKEND_DIR.parent / "data" / "kb_chunks.jsonl"
-    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Gemini embedding model (same family as cloud_llm). The local tokenizer
+    # below is used only for chunk sizing, never for embedding.
+    embed_model: str = "gemini-embedding-001"
+    embed_dim: int = Field(default=768, ge=1)
+    chunk_tokenizer_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     max_upload_mb: int = Field(default=20, ge=1)
 
     gemini_api_key: str = ""

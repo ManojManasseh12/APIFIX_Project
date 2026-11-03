@@ -12,6 +12,14 @@ from app.core.config import settings
 _WORD = re.compile(r"\w+", flags=re.UNICODE)
 
 
+def collection_name(model: str | None = None, dimensions: int | None = None) -> str:
+    """One Chroma collection per embedding model/dimension pair."""
+    model_name = (model or settings.embed_model).lower()
+    dims = dimensions or settings.embed_dim
+    slug = re.sub(r"[^a-z0-9]+", "_", model_name).strip("_")
+    return f"apifix_docs_{slug}_{dims}"[:63].rstrip("_")
+
+
 class VectorStore:
     def __init__(self, collection: Any | None = None):
         self._collection = collection
@@ -32,7 +40,7 @@ class VectorStore:
                     settings.chroma_dir.mkdir(parents=True, exist_ok=True)
                     client = chromadb.PersistentClient(path=str(settings.chroma_dir))
                     self._collection = client.get_or_create_collection(
-                        name="apifix_docs",
+                        name=collection_name(),
                         configuration={"hnsw": {"space": "cosine"}},
                     )
         return self._collection

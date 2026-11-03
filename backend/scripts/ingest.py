@@ -1,4 +1,4 @@
-import os
+import asyncio
 import sys
 from pathlib import Path
 
@@ -6,28 +6,34 @@ import pandas as pd
 import psycopg
 from dotenv import load_dotenv
 from pgvector.psycopg import register_vector
-from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "backend"))
 load_dotenv(ROOT / ".env")
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
+from app.ai.rag.embedding import embedding  # noqa: E402
+from scripts.chunk_text import token_count  # noqa: E402
+
 PIPELINE = "v1"
 
 
-def token_count(model, text: str) -> int:
-    return len(model.tokenizer.encode(text, add_special_tokens=False))
-
-
 def main(csv_path: str | None = None):
+    import os
+
     path = Path(csv_path) if csv_path else ROOT / "data" / "kb_seed.csv"
     df = pd.read_csv(path).fillna("")
-    model = SentenceTransformer(MODEL_NAME)
-    embeddings = model.encode(df["chunk_text"].tolist(), normalize_embeddings=True)
+    texts = df["chunk_text"].tolist()
+
+    print(
+        f"Embedding {len(texts)} chunks with {embedding.model_name} "
+        f"({embedding.dimensions} dims)..."
+    )
+    embeddings = asyncio.run(embedding.embed_texts(texts))
 
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         register_vector(conn)
         with conn.cursor() as cur:
-            for row, embedding in zip(df.to_dict("records"), embeddings):
+            for row, vector in zip(df.to_dict("records"), embeddings):
                 cur.execute(
                     """
                     insert into kb_chunks (
@@ -65,10 +71,10 @@ def main(csv_path: str | None = None):
                     {
                         **row,
                         "page": int(row["page"]) if str(row["page"]).isdigit() else None,
-                        "token_count": token_count(model, row["chunk_text"]),
-                        "embedding": embedding,
-                        "embedding_model": MODEL_NAME,
-                        "embedding_dim": len(embedding),
+                        "token_count": token_count(row["chunk_text"]),
+                        "embedding": vector,
+                        "embedding_model": embedding.model_name,
+                        "embedding_dim": len(vector),
                         "pipeline": PIPELINE,
                         "source_file": row.get("source_file") or path.name,
                     },

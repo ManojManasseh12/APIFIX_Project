@@ -63,11 +63,9 @@ async def retrieve_for_api(
 ) -> RetrievalResult:
     stats = await ensure_seeded()
     if stats["chunk_count"] == 0:
-        # The local NumPy index is synchronous (MiniLM encode), so keep it
-        # off the event loop.
-        return await asyncio.to_thread(
-            get_retriever().search, question, api_name, path
-        )
+        # Local NumPy fallback: query embedding is a Gemini API call, so it is
+        # awaited rather than run inside a worker thread.
+        return await get_retriever().search(question, api_name, path)
     where = {"api_name": api_name} if api_name else None
     query_vector = await embedding.embed_prompt(question)
     dense = await pipeline.store.retrieve(

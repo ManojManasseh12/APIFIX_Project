@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import json
 import sys
@@ -20,7 +21,7 @@ def mrr(predicted, expected):
     return 0.0
 
 
-def main(split="dev"):
+async def main(split="dev"):
     with open(ROOT / "data" / "evaluation_cases.csv", newline="", encoding="utf-8") as fh:
         cases = list(csv.DictReader(fh))
     evidence = json.load(open(ROOT / "eval" / "evidence_map.json"))
@@ -32,7 +33,7 @@ def main(split="dev"):
         if case["split"] != split or case["case_id"] not in evidence:
             continue
         query = f"{case['method']} {case['path']} HTTP {case['observed_status']} {case['input_issue']}"
-        result = retriever.search(query, api_name=None, path=case["path"])
+        result = await retriever.search(query, api_name=None, path=case["path"])
         predicted = [chunk["chunk_id"] for chunk in result.chunks]
         expected = evidence[case["case_id"]]
         if not expected:
@@ -50,4 +51,4 @@ def main(split="dev"):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "dev")
+    asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else "dev"))

@@ -15,7 +15,7 @@ _MODEL_LOCK = threading.Lock()
 def get_model(model_name: str | None = None):
     global _MODEL, _MODEL_NAME
     requested_name = model_name or os.getenv(
-        "EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+        "CHUNK_TOKENIZER_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
     )
     with _MODEL_LOCK:
         if _MODEL is None:

@@ -34,13 +34,13 @@ def test_row_maps_chunk_metadata_to_kb_chunks():
         },
     )
 
-    row = store._row(chunk, [0.1] * 384)
+    row = store._row(chunk, [0.1] * settings.embed_dim)
 
     assert row["chunk_id"] == "KB-1"
     assert row["source_file"] == "guide.md"
     assert row["source_title"] == "Rate limits"
     assert row["page"] == 3
-    assert row["embedding_dim"] == 384
+    assert row["embedding_dim"] == settings.embed_dim
     assert row["embedding_model"] == settings.embed_model
     assert row["source_type"] == "upload"
     assert row["api_version"] == "v1"
@@ -50,7 +50,7 @@ def test_row_defaults_missing_optional_fields():
     store = bare_store()
     chunk = Chunk(id="KB-2", title="Doc", content="text", metadata={})
 
-    row = store._row(chunk, [0.0] * 384)
+    row = store._row(chunk, [0.0] * settings.embed_dim)
 
     assert row["source_file"] == ""
     assert row["source_title"] == "Doc"
@@ -96,7 +96,9 @@ def test_hybrid_search_fuses_dense_and_keyword_ranks():
         {"chunk_id": "c", "chunk_text": "C"},
     ]
 
-    hits = store._retrieve_sync([0.1] * 384, "query", 3, "hybrid", None)
+    hits = store._retrieve_sync(
+        [0.1] * settings.embed_dim, "query", 3, "hybrid", None
+    )
 
     assert [hit.chunk_id for hit in hits] == ["b", "a", "c"]
     assert hits[0].score > hits[1].score

@@ -11,8 +11,8 @@ This repository is the working scaffold for the 5-day plan. It is deliberately a
 - Mock API with deterministic 401/403/404/405/410/413/415/422/429/500/502/503/timeout/redirect/SSRF behavior.
 - HTTPX tester with error classification.
 - Secret redaction and SSRF allowlist.
-- Local retrieval (MiniLM + NumPy) and Supabase pgvector retrieval.
-- Upload-based RAG ingestion with MiniLM embeddings, persistent ChromaDB, BM25 keyword search, and hybrid retrieval.
+- Local retrieval (Gemini embeddings + NumPy) and Supabase pgvector retrieval.
+- Upload-based RAG ingestion with Gemini embeddings, persistent ChromaDB, BM25 keyword search, and hybrid retrieval.
 - Seed knowledge base (`data/kb_chunks.jsonl`, 88 chunks) auto-loaded into Chroma on first use, so uploads add to it instead of hiding it.
 - Gemini → Groq → Mistral fallback adapters with quota-aware model/key switching.
 - SSE diagnosis endpoint with citations and a JSON patch.
@@ -25,13 +25,13 @@ This repository is the working scaffold for the 5-day plan. It is deliberately a
 ## Retrieval evaluation
 
 Measured on the `dev` split with a temporary Chroma collection seeded from
-`data/kb_chunks.jsonl`:
+`data/kb_chunks.jsonl` using `gemini-embedding-001` (768 dimensions):
 
 | Mode | Recall@5 | MRR | Scored cases |
 |---|---:|---:|---:|
-| Dense | 1.000 | 0.690 | 35 |
+| Dense | 0.971 | 0.623 | 35 |
 | Keyword | 0.614 | 0.375 | 35 |
-| Hybrid | 0.971 | 0.548 | 35 |
+| Hybrid | 0.829 | 0.461 | 35 |
 
 The corpus is small and the scores are directional. Run `python eval/run_eval.py
 --split dev` or `--split heldout`. The seed corpus is loaded into Chroma on
@@ -108,13 +108,17 @@ If `python3 -m venv` fails with `ensurepip is not available`, install `python3-v
 
 ### 2. Build the local retrieval index
 
-This works without Supabase:
+Embeddings use Google's `gemini-embedding-001` (768 dimensions), the same model
+family as `cloud_llm`, so `GEMINI_API_KEY` must be set in `.env` (see step 6)
+before building the index. This works without Supabase:
 
 ```bash
 python backend/scripts/build_local_index.py
 ```
 
-The script reads `data/kb_seed.csv` and writes `data/kb_embeddings.npy` and `data/kb_meta.json`.
+The script reads `data/kb_seed.csv`, calls the Gemini embedding API, and writes
+`data/kb_embeddings.npy` and `data/kb_meta.json`. Rebuild the index whenever
+`EMBED_MODEL` or `EMBED_DIM` changes.
 
 ### 2a. Upload and index documents with ChromaDB
 
@@ -130,8 +134,10 @@ curl -X POST http://127.0.0.1:8000/api/search \
   -d '{"query":"What does HTTP 401 mean?","mode":"hybrid","k":5}'
 ```
 
-Configure `UPLOAD_DIR`, `CHROMA_DIR`, `EMBED_MODEL`, and `MAX_UPLOAD_MB` in
-`.env` to override the defaults.
+Configure `UPLOAD_DIR`, `CHROMA_DIR`, `EMBED_MODEL`, `EMBED_DIM`,
+`CHUNK_TOKENIZER_MODEL`, and `MAX_UPLOAD_MB` in `.env` to override the defaults.
+Chroma collections are named per embedding model and dimension, so switching
+models creates a separate index instead of mixing incompatible vectors.
 
 On the first retrieval, search, or KB-stats call, the backend loads
 `data/kb_chunks.jsonl` into Chroma if the collection is empty. Uploaded
@@ -271,10 +277,12 @@ uploads, deletes, and `eval/run_eval.py` work against either one.
 
 If the database is unreachable, the app logs a warning and falls back to
 Chroma. Set `RETRIEVAL_BACKEND=local` to make that explicit. The schema is
-`vector(384)` because MiniLM produces 384-dimensional embeddings; if you change
-`EMBED_MODEL`, update the column dimension and re-ingest. Uploads written while
-one backend is active are not copied to the other, so re-upload or run
-`ingest.py` after switching stores.
+`vector(768)` because `gemini-embedding-001` produces 768-dimensional
+embeddings; if you change `EMBED_MODEL`/`EMBED_DIM`, update the column dimension
+and re-ingest. If `kb_chunks` was created for the old 384-dimensional MiniLM
+vectors, run [`backend/sql/migrate_embedding_384_to_768.sql`](backend/sql/migrate_embedding_384_to_768.sql)
+first. Uploads written while one backend is active are not copied to the other,
+so re-upload or run `ingest.py` after switching stores.
 
 ## Tests
 

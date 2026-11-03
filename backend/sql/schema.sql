@@ -1,9 +1,10 @@
 -- APIFix AI — Supabase / pgvector schema
 -- Run this once in Supabase Dashboard → SQL Editor.
 --
--- Embeddings from sentence-transformers/all-MiniLM-L6-v2 are 384-dimensional.
--- If you change EMBED_MODEL, change vector(384) to the new dimension and
--- re-ingest every chunk.
+-- Embeddings from Google gemini-embedding-001 are 768-dimensional.
+-- If you change EMBED_MODEL/EMBED_DIM, change vector(768) to the new dimension
+-- and re-ingest every chunk. See migrate_embedding_384_to_768.sql when
+-- upgrading an existing MiniLM (384-d) table.
 
 create extension if not exists vector;
 
@@ -22,7 +23,7 @@ create table if not exists kb_chunks (
   retrieved_at date,
   token_count int,
   chunk_text text not null,
-  embedding vector(384) not null,
+  embedding vector(768) not null,
   embedding_model text not null,
   embedding_dim int not null,
   embedding_pipeline_version text not null,

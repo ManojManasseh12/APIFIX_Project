@@ -19,8 +19,8 @@ File: `knowledge_base_sample.jsonl` (one chunk per line). In production these ro
 | retrieved_at | Date the source was downloaded |
 | token_count | Chunk length; target 180–230 tokens with 30–40 overlap |
 | chunk_text | The text that is embedded and shown to the LLM |
-| embedding_model / embedding_dim | sentence-transformers/all-MiniLM-L6-v2, 384 dimensions |
-| embedding | 384-number vector in a pgvector column |
+| embedding_model / embedding_dim | gemini-embedding-001, 768 dimensions |
+| embedding | 768-number vector in a pgvector column |
 | embedding_pipeline_version | Version of chunking and embedding; change it when the pipeline changes |
 
 Note: the sample `chunk_text` values are paraphrases written for this guide. Replace them with text from the cited sources during ingestion, and check each source's licence first.

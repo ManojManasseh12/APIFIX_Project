@@ -1,11 +1,15 @@
+import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.ai.rag.embedding import embedding
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 DATA_DIR = Path(__file__).resolve().parents[4] / "data"
-_MODEL = None
 
 
 @dataclass
@@ -15,18 +19,6 @@ class RetrievalResult:
     other_versions: list[str] = field(default_factory=list)
     insufficient: bool = False
     query: str = ""
-
-
-def _model():
-    global _MODEL
-    if _MODEL is None:
-        import os
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-        from sentence_transformers import SentenceTransformer
-
-        _MODEL = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    return _MODEL
 
 
 def detect_version(path: str) -> str | None:
@@ -61,6 +53,8 @@ def _version_check(rows: list[dict], requested_path: str):
 
 
 class LocalRetriever:
+    """NumPy index over ``data/kb_embeddings.npy`` (Gemini vectors)."""
+
     def __init__(self):
         import numpy as np
 
@@ -68,12 +62,34 @@ class LocalRetriever:
         meta_path = DATA_DIR / "kb_meta.json"
         vec_path = DATA_DIR / "kb_embeddings.npy"
         self.rows = json.load(open(meta_path)) if meta_path.exists() else []
-        self.vectors = np.load(vec_path) if vec_path.exists() else None
+        if vec_path.exists():
+            vectors = np.load(vec_path).astype(float)
+            norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            self.vectors = vectors / norms
+        else:
+            self.vectors = None
 
-    def search(self, query: str, api_name: str | None = None, path: str = "") -> RetrievalResult:
+    async def search(
+        self, query: str, api_name: str | None = None, path: str = ""
+    ) -> RetrievalResult:
         if self.vectors is None or not self.rows:
             return RetrievalResult(insufficient=True, query=query)
-        vector = _model().encode([query], normalize_embeddings=True)[0]
+
+        vector = self.np.asarray(
+            await embedding.embed_prompt(query), dtype=float
+        )
+        if self.vectors.shape[1] != vector.shape[0]:
+            raise RuntimeError(
+                f"Local index has {self.vectors.shape[1]}-dimensional vectors but "
+                f"{settings.embed_model} returns {vector.shape[0]}-dimensional "
+                "vectors. Rebuild it with backend/scripts/build_local_index.py."
+            )
+
+        norm = self.np.linalg.norm(vector)
+        if norm:
+            vector = vector / norm
+
         scores = self.vectors @ vector
         order = self.np.argsort(-scores)[:20]
         rows = [dict(self.rows[i], score=float(scores[i])) for i in order]
@@ -93,6 +109,8 @@ class LocalRetriever:
 
 
 class SupabaseRetriever:
+    """pgvector retriever used when RETRIEVAL_BACKEND=supabase."""
+
     def __init__(self):
         import psycopg
         from pgvector.psycopg import register_vector
@@ -111,10 +129,19 @@ class SupabaseRetriever:
                        1 - (embedding <=> %s) as score
                 from kb_chunks
                 where (%s is null or api_name = %s)
+                  and embedding_model = %s
+                  and embedding_dim = %s
                 order by embedding <=> %s
                 limit 20
                 """,
-                (Vector(vector), api_name, api_name, Vector(vector)),
+                (
+                    Vector(vector),
+                    api_name,
+                    api_name,
+                    settings.embed_model,
+                    settings.embed_dim,
+                    Vector(vector),
+                ),
             )
             columns = [c.name for c in cur.description]
             return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -129,16 +156,34 @@ class SupabaseRetriever:
                 from kb_chunks
                 where fts @@ websearch_to_tsquery('english', %s)
                   and (%s is null or api_name = %s)
+                  and embedding_model = %s
+                  and embedding_dim = %s
                 order by score desc
                 limit 20
                 """,
-                (query, query, api_name, api_name),
+                (
+                    query,
+                    query,
+                    api_name,
+                    api_name,
+                    settings.embed_model,
+                    settings.embed_dim,
+                ),
             )
             columns = [c.name for c in cur.description]
             return [dict(zip(columns, row)) for row in cur.fetchall()]
 
-    def search(self, query: str, api_name: str | None = None, path: str = "") -> RetrievalResult:
-        vector = _model().encode([query], normalize_embeddings=True)[0]
+    async def search(
+        self, query: str, api_name: str | None = None, path: str = ""
+    ) -> RetrievalResult:
+        vector = await embedding.embed_prompt(query)
+        return await asyncio.to_thread(
+            self._search_sync, vector, query, api_name, path
+        )
+
+    def _search_sync(
+        self, vector: list[float], query: str, api_name: str | None, path: str
+    ) -> RetrievalResult:
         dense = self._search_dense(vector, api_name)
         keyword = self._search_keyword(query, api_name)
 

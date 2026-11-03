@@ -16,6 +16,11 @@ React UI
 ## Database schema
 
 The copy-paste version lives in [`backend/sql/schema.sql`](../backend/sql/schema.sql).
+Embeddings come from Google `gemini-embedding-001` (768 dimensions); the local
+MiniLM model is kept only as the chunk-sizing tokenizer. If you are upgrading
+an existing 384-dimensional MiniLM table, run
+[`backend/sql/migrate_embedding_384_to_768.sql`](../backend/sql/migrate_embedding_384_to_768.sql)
+before re-ingesting.
 
 ```sql
 create extension if not exists vector;
@@ -35,7 +40,7 @@ create table if not exists kb_chunks (
   retrieved_at date,
   token_count int,
   chunk_text text not null,
-  embedding vector(384) not null,
+  embedding vector(768) not null,
   embedding_model text not null,
   embedding_dim int not null,
   embedding_pipeline_version text not null,

@@ -169,7 +169,7 @@ class DataProcess:
                             section_text,
                             target=self.target_tokens,
                             overlap=self.overlap_tokens,
-                            model_name=settings.embed_model,
+                            model_name=settings.chunk_tokenizer_model,
                         )
                     ):
                         if not part.strip():
