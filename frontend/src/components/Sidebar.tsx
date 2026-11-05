@@ -27,7 +27,7 @@ export function Sidebar({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <aside className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+    <aside className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto">
       {/* COLLECTIONS */}
       <div>
         <h2 className="mb-2.5 text-[11px] font-bold tracking-wider text-slate-400 uppercase">

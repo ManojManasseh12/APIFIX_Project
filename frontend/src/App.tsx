@@ -371,7 +371,7 @@ export default function App() {
           </div>
         )}
         {activeTab === "diagnose" ? (
-          <div className="mx-auto grid max-w-[1550px] grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="mx-auto grid max-w-[1550px] grid-cols-1 items-start gap-5 lg:grid-cols-12">
             {/* Left Column: Collections & Recent Tests (approx 3 cols) */}
             <div className="lg:col-span-3">
               <Sidebar

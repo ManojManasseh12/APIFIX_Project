@@ -145,13 +145,16 @@ export function DiagnosisViewer({
   const isVerified = Boolean(retestResult);
 
   return (
-    <section className="flex flex-col justify-between rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs transition-all">
-      <div>
+    <section className="flex flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs transition-all lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)]">
+      {/* Scrollable content area; the action footer below stays pinned */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-900">AI diagnosis</h2>
           <span className="text-xs text-slate-400">
-            grounded in {sourceCount || 2} source{sourceCount === 1 ? "" : "s"}
+            {sourceCount > 0
+              ? `grounded in ${sourceCount} source${sourceCount === 1 ? "" : "s"}`
+              : "grounded in your knowledge base"}
           </span>
         </div>
 
@@ -331,8 +334,8 @@ export function DiagnosisViewer({
       </div>
       
 
-      {/* ACTION BUTTONS & FOOTER */}
-      <div className="mt-6 pt-2">
+      {/* ACTION BUTTONS & FOOTER (pinned below the scroll area) */}
+      <div className="mt-6 shrink-0 pt-2">
         <div className="flex items-center gap-2">
           <button
             onClick={handleApply}
