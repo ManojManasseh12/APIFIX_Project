@@ -79,8 +79,13 @@ async def test_health_over_httpx():
     async with api_client() as client:
         response = await client.get("/api/health")
 
+    body = response.json()
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "service": "apifix-ai"}
+    assert body["ok"] is True
+    assert body["service"] == "apifix-ai"
+    assert body["runner"] == "httpx"
+    assert body["retrieval_backend"] in ("local", "supabase")
+    assert isinstance(body["providers"], list)
 
 
 async def test_test_endpoint_observes_mock_and_redacts_headers(mock_api):
