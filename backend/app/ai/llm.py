@@ -156,6 +156,42 @@ class MistralProvider:
                 yield delta
 
 
+@dataclass
+class NvidiaProvider:
+    """NVIDIA NIM catalog — OpenAI-compatible API at integrate.api.nvidia.com."""
+
+    api_key: str = ""
+    model: str = ""
+    name: str = "nvidia"
+
+    @property
+    def label(self) -> str:
+        return f"{self.name}:{self.model}"
+
+    def available(self) -> bool:
+        return bool(self.api_key and self.model)
+
+    async def stream(self, system: str, user: str) -> AsyncIterator[str]:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url="https://integrate.api.nvidia.com/v1",
+        )
+        stream = await client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            stream=True,
+        )
+        async for event in stream:
+            delta = event.choices[0].delta.content
+            if delta:
+                yield delta
+
+
 def _split_env(name: str) -> list[str]:
     return _split_value(os.getenv(name, ""))
 
@@ -175,7 +211,10 @@ def _keys(single: str, plural: str) -> list[str]:
 
 
 def _series(
-    provider_cls: type[GeminiProvider] | type[GroqProvider] | type[MistralProvider],
+    provider_cls: type[GeminiProvider]
+    | type[GroqProvider]
+    | type[MistralProvider]
+    | type[NvidiaProvider],
     key_env: str,
     keys_env: str,
     model_env: str,
@@ -219,6 +258,13 @@ _FAMILIES: dict[str, tuple[type, str, str, str, str]] = {
         "MISTRAL_MODEL",
         "mistral-small-latest",
     ),
+    "nvidia": (
+        NvidiaProvider,
+        "NVIDIA_API_KEY",
+        "NVIDIA_API_KEYS",
+        "NVIDIA_MODEL",
+        "openai/gpt-oss-20b,deepseek-ai/deepseek-v4.1-flash",
+    ),
 }
 
 
@@ -226,7 +272,9 @@ def get_providers() -> list[Provider]:
     """Configured provider/model attempts in the order they should be tried."""
     order = [
         name.strip().lower()
-        for name in os.getenv("PROVIDER_ORDER", "gemini,groq,mistral").split(",")
+        for name in os.getenv(
+            "PROVIDER_ORDER", "groq,gemini,mistral,nvidia"
+        ).split(",")
         if name.strip()
     ]
     # Any configured family missing from PROVIDER_ORDER still gets a turn.

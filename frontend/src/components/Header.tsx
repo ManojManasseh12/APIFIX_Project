@@ -62,13 +62,13 @@ export function Header({
       {/* Status Badges */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
-          Runner: <span className="font-semibold text-slate-800">Playwright</span>
+          Runner: <span className="font-semibold text-slate-800">HTTPX async</span>
         </div>
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
-          Search: <span className="font-semibold text-slate-800">Qdrant Cloud, hybrid</span>
+          Search: <span className="font-semibold text-slate-800">Chroma + BM25 hybrid</span>
         </div>
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
-          Model: <span className="font-semibold text-slate-800">Qwen3 4B, local</span>
+          Model: <span className="font-semibold text-slate-800">Groq → Gemini → Mistral → NVIDIA</span>
         </div>
       </div>
     </header>

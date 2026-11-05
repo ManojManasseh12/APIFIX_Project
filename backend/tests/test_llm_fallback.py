@@ -175,6 +175,15 @@ def test_get_providers_expands_models_and_keys(monkeypatch):
     monkeypatch.setenv("PROVIDER_ORDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEYS", "key-1,key-2")
     monkeypatch.setenv("GEMINI_MODEL", "model-a,model-b")
+    for env in (
+        "GROQ_API_KEY",
+        "GROQ_API_KEYS",
+        "MISTRAL_API_KEY",
+        "MISTRAL_API_KEYS",
+        "NVIDIA_API_KEY",
+        "NVIDIA_API_KEYS",
+    ):
+        monkeypatch.delenv(env, raising=False)
 
     labels = [provider.label for provider in get_providers()]
 
@@ -189,7 +198,7 @@ def test_get_providers_expands_models_and_keys(monkeypatch):
 def test_ask_context_keeps_only_last_four_messages():
     from types import SimpleNamespace
 
-    from app.ai.context import build_ask_context
+    from app.ai.prompts import build_ask_context
 
     history = [
         SimpleNamespace(role="user", content=f"message-{index}")
@@ -210,8 +219,15 @@ def test_get_providers_uses_default_model_for_key_only(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "key-1")
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    for env in (
+        "GROQ_API_KEY",
+        "GROQ_API_KEYS",
+        "MISTRAL_API_KEY",
+        "MISTRAL_API_KEYS",
+        "NVIDIA_API_KEY",
+        "NVIDIA_API_KEYS",
+    ):
+        monkeypatch.delenv(env, raising=False)
 
     labels = [provider.label for provider in get_providers()]
 
