@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { RunSummary } from "./types";
 import { Header } from "./components/Header";
 import type { WorkspaceTab } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
@@ -40,9 +41,33 @@ export default function App() {
   // Execution status
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("done");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [retestResult, setRetestResult] = useState<RetestResult | null>(null);
   const [retesting, setRetesting] = useState<boolean>(false);
   const [isMockData, setIsMockData] = useState<boolean>(true);
+
+  // Recent run history from the backend (Supabase / SQLite)
+  const [recentRuns, setRecentRuns] = useState<RunSummary[]>([]);
+
+  // Cancel in-flight SSE streams when the workspace unmounts.
+  const streamAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => streamAbortRef.current?.abort(), []);
+
+  // Load real run history for the sidebar; refresh after each diagnosis.
+  const refreshRuns = async () => {
+    try {
+      const response = await fetch("/api/runs");
+      if (response.ok) {
+        const data = await response.json();
+        setRecentRuns(data.runs ?? []);
+      }
+    } catch {
+      // Sidebar stays on preset data when the backend is unreachable
+    }
+  };
+  useEffect(() => {
+    void refreshRuns();
+  }, []);
 
   // Preset Selection
   function handleSelectPreset(preset: ScenarioPreset) {
@@ -63,6 +88,10 @@ export default function App() {
 
   // Live Test Execution
   async function handleRunTest() {
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
     setStatus("running");
     setError(null);
     setIsMockData(false);
@@ -74,44 +103,50 @@ export default function App() {
     setSources([]);
 
     try {
-      await streamDiagnosis(spec, (event, data) => {
-        if (event === "observation") {
-          setObservation({
-            ...data,
-            size_kb: `${((data.body_preview?.length || 100) / 1024).toFixed(1)} KB`,
-            cors_status: "allowed",
-          });
-        }
-        if (event === "token") {
-          setWhatWentWrong((prev) => prev + data.text);
-        }
-        if (event === "retrieval") {
-          setCitations(data.chunks ?? []);
-        }
-        if (event === "done") {
-          if (data.diagnosis) {
-            setWhatWentWrong(data.diagnosis);
+      await streamDiagnosis(
+        spec,
+        (event, data) => {
+          if (event === "observation") {
+            setObservation(data);
           }
-          if (data.patch) {
-            setPatch(data.patch);
-            setSuggestedFix(JSON.stringify(data.patch, null, 2));
+          if (event === "token") {
+            setWhatWentWrong((prev) => prev + data.text);
           }
-          setStatus("done");
-        }
-        if (event === "error") {
-          if (data.code === "no_providers_configured") {
-            setError(
-              "No AI provider keys configured in .env. Test completed; add GEMINI_API_KEY for live LLM streaming."
-            );
-          } else {
-            setError(data.message ?? data.code);
+          if (event === "retrieval") {
+            setCitations(data.chunks ?? []);
           }
-          setStatus("done");
-        }
-      });
+          if (event === "done") {
+            if (data.diagnosis) {
+              setWhatWentWrong(data.diagnosis);
+            }
+            if (data.patch) {
+              setPatch(data.patch);
+              setSuggestedFix(JSON.stringify(data.patch, null, 2));
+            }
+            setStatus("done");
+            void refreshRuns();
+          }
+          if (event === "error") {
+            if (data.code === "no_providers_configured") {
+              setError(
+                "No AI provider keys configured in .env. Test completed; add GEMINI_API_KEY for live LLM streaming."
+              );
+            } else {
+              setError(data.message ?? data.code);
+            }
+            setStatus("error");
+          }
+        },
+        controller.signal
+      );
     } catch (err) {
+      if ((err as Error)?.name === "AbortError") return; // cancelled by a newer run/unmount
       setError(String(err));
       setStatus("error");
+    } finally {
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+      }
     }
   }
 
@@ -136,11 +171,7 @@ export default function App() {
       const data: RetestResult = await response.json();
       setRetestResult(data);
       setPatch(activePatch);
-      setObservation({
-        ...data.observation,
-        size_kb: "0.4 KB",
-        cors_status: "allowed",
-      });
+      setObservation(data.observation);
 
       // Update current spec with applied patch
       const patchedSpec: RequestSpec = {
@@ -160,8 +191,9 @@ export default function App() {
     }
   }
 
-  // Copy as cURL command
-  function handleCopyCurl() {
+  // Copy as cURL command. Resolves to false when the clipboard is unavailable
+  // (e.g. non-secure origins), so the UI never shows a false "Copied!".
+  async function handleCopyCurl(): Promise<boolean> {
     let curl = `curl -X ${spec.method} "${spec.url}"`;
     for (const [key, val] of Object.entries(spec.headers)) {
       curl += ` \\\n  -H "${key}: ${val}"`;
@@ -170,24 +202,135 @@ export default function App() {
       const bodyStr = typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body);
       curl += ` \\\n  -d '${bodyStr}'`;
     }
-    navigator.clipboard.writeText(curl);
+    try {
+      await navigator.clipboard.writeText(curl);
+      return true;
+    } catch {
+      setError("Clipboard copy failed — your browser blocked clipboard access.");
+      return false;
+    }
   }
 
-  // Import OpenAPI file
-  function handleImportOpenAPI(file: File) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const json = JSON.parse(text);
-        const title = json.info?.title || file.name;
-        const newPreset: ScenarioPreset = {
+  // Import OpenAPI file (JSON only; YAML is rejected with a clear message)
+  // Uploaded OpenAPI files ("My own API" collection) and their KB ingestion
+  const [uploadedFiles, setUploadedFiles] = useState<
+    { name: string; size: number }[]
+  >([]);
+  const [importing, setImporting] = useState(false);
+  const [bundledChunks, setBundledChunks] = useState<number | null>(null);
+
+  const refreshKbStats = async () => {
+    try {
+      const response = await fetch("/api/kb/stats");
+      if (response.ok) {
+        setBundledChunks((await response.json()).chunk_count ?? null);
+      }
+    } catch {
+      // keep the previous value when the backend is unreachable
+    }
+  };
+  useEffect(() => {
+    void refreshKbStats();
+  }, []);
+
+  const refreshFiles = async () => {
+    try {
+      const response = await fetch("/api/files");
+      if (response.ok) {
+        setUploadedFiles((await response.json()).files ?? []);
+      }
+    } catch {
+      // file list stays empty when the backend is unreachable
+    }
+  };
+  useEffect(() => {
+    void refreshFiles();
+  }, []);
+
+  // Full import flow: upload the spec, ingest it into the knowledge base,
+  // then create presets for its endpoints so they can be tested directly.
+  async function handleImportOpenAPI(file: File) {
+    setError(null);
+    setNotice(null);
+    setImporting(true);
+    try {
+      // 1. Upload (backend validates extension/size, sanitizes the name)
+      const form = new FormData();
+      form.append("files", file);
+      const uploadRes = await fetch("/api/upload", {
+        method: "POST",
+        body: form,
+      });
+      const uploadData = await uploadRes.json().catch(() => null);
+      if (!uploadRes.ok) {
+        throw new Error(uploadData?.detail ?? "Upload failed");
+      }
+      const savedName: string = uploadData.files[0].name;
+
+      // 2. Ingest into the knowledge base (chunks + embeddings)
+      const ingestRes = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: [savedName] }),
+      });
+      const ingestData = await ingestRes.json().catch(() => null);
+      if (!ingestRes.ok) {
+        throw new Error(ingestData?.detail ?? "Knowledge base ingest failed");
+      }
+      const chunksAdded: number =
+        ingestData?.chunks_added ??
+        (ingestData?.files ?? []).reduce(
+          (sum: number, entry: { chunks_added?: number }) =>
+            sum + (entry.chunks_added ?? 0),
+          0
+        );
+
+      // 3. Build presets from the spec (JSON only; YAML still indexes fine)
+      const newPresets: ScenarioPreset[] = [];
+      if (/\.json$/i.test(file.name)) {
+        try {
+          const json = JSON.parse(await file.text());
+          const base: string = (json.servers?.[0]?.url ?? "").replace(/\/$/, "");
+          const entries: { method: string; path: string }[] = [];
+          for (const [path, methods] of Object.entries(json.paths ?? {})) {
+            for (const method of Object.keys(methods as object)) {
+              if (["get", "post", "put", "patch", "delete"].includes(method)) {
+                entries.push({ method: method.toUpperCase(), path });
+              }
+            }
+          }
+          for (const entry of entries.slice(0, 8)) {
+            newPresets.push({
+              id: `custom-${Date.now()}-${newPresets.length}`,
+              collection: "custom",
+              name: `${entry.method} ${entry.path}`,
+              statusBadge: 200,
+              method: entry.method,
+              path: entry.path,
+              spec: {
+                method: entry.method,
+                url: `${base}${entry.path}`.replace(/\{[^}]+\}/g, "1"),
+                headers: { Accept: "application/json" },
+                body: null,
+                timeout_s: 10,
+                expected_status: null,
+                question: `Analyze this ${entry.method} request against ${json.info?.title ?? file.name}`,
+                approved: false,
+              },
+            });
+          }
+        } catch {
+          // Spec structure unexpected — upload+ingest already succeeded
+        }
+      }
+      if (newPresets.length === 0) {
+        newPresets.push({
           id: `custom-${Date.now()}`,
           collection: "custom",
-          name: title,
+          name: file.name,
           statusBadge: 200,
           method: "GET",
-          path: "/custom-endpoint",
+          path: `/${file.name}`,
           spec: {
             method: "GET",
             url: "http://localhost:8001/v1/profile",
@@ -195,17 +338,25 @@ export default function App() {
             body: null,
             timeout_s: 5,
             expected_status: 200,
-            question: "Analyze imported API",
+            question: `Ask about the imported API ${file.name}`,
             approved: false,
           },
-        };
-        setPresets((prev) => [newPreset, ...prev]);
-        handleSelectPreset(newPreset);
-      } catch {
-        alert("Could not parse OpenAPI file as valid JSON.");
+        });
       }
-    };
-    reader.readAsText(file);
+
+      setPresets((prev) => [...newPresets, ...prev]);
+      setActiveCollection("custom");
+      handleSelectPreset(newPresets[0]);
+      void refreshFiles();
+      void refreshKbStats();
+      setNotice(
+        `Imported "${file.name}" — ${chunksAdded} chunk${chunksAdded === 1 ? "" : "s"} indexed into the knowledge base.`
+      );
+    } catch (err) {
+      setError(`OpenAPI import failed: ${(err as Error).message}`);
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -214,12 +365,21 @@ export default function App() {
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
       <main className="flex-1 p-5">
+        {notice && (
+          <div className="mx-auto mb-4 max-w-[1550px] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800">
+            {notice}
+          </div>
+        )}
         {activeTab === "diagnose" ? (
           <div className="mx-auto grid max-w-[1550px] grid-cols-1 gap-5 lg:grid-cols-12">
             {/* Left Column: Collections & Recent Tests (approx 3 cols) */}
             <div className="lg:col-span-3">
               <Sidebar
                 presets={presets}
+                runs={recentRuns}
+                files={uploadedFiles}
+                importing={importing}
+                bundledChunks={bundledChunks}
                 selectedPresetId={selectedPresetId}
                 onSelectPreset={handleSelectPreset}
                 activeCollection={activeCollection}
@@ -253,6 +413,7 @@ export default function App() {
                 onApplyFix={handleApplyFix}
                 onCopyCurl={handleCopyCurl}
                 retesting={retesting}
+                observationStatus={observation?.status}
               />
             </div>
           </div>

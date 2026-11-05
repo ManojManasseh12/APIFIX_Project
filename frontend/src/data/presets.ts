@@ -50,8 +50,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "0.3 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong:
@@ -125,8 +123,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "0.1 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong:
@@ -203,8 +199,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "1.2 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong: "Request succeeded with 200 OK. No failure detected.",
@@ -256,8 +250,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "0.2 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong:

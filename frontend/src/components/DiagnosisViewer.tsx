@@ -39,6 +39,7 @@ export function DiagnosisViewer({
   onApplyFix,
   onCopyCurl,
   retesting,
+  observationStatus,
 }: {
   whatWentWrong: string;
   suggestedFix: string;
@@ -49,8 +50,9 @@ export function DiagnosisViewer({
   error: string | null;
   retestResult: RetestResult | null;
   onApplyFix: (patch: Patch) => void;
-  onCopyCurl: () => void;
+  onCopyCurl: () => Promise<boolean> | boolean;
   retesting: boolean;
+  observationStatus?: number | null;
 }) {
   const [copied, setCopied] = useState(false);
   const [patchDraft, setPatchDraft] = useState("");
@@ -75,9 +77,11 @@ export function DiagnosisViewer({
   const sourceCount = allSources.length;
 
   function handleCopy() {
-    onCopyCurl();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    Promise.resolve(onCopyCurl()).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   let parsedPatch: Patch | null = null;
@@ -135,8 +139,8 @@ export function DiagnosisViewer({
 
 
   // Determine stage pill states
-  const isTested = status === "done" || Boolean(whatWentWrong);
-  const isRetrieved = (status === "done" && sourceCount > 0) || Boolean(whatWentWrong);
+  const isTested = status === "done" || status === "running" || Boolean(whatWentWrong);
+  const isRetrieved = status !== "idle" && status !== "error" && sourceCount > 0;
   const isDiagnosed = status === "done" || Boolean(whatWentWrong);
   const isVerified = Boolean(retestResult);
 
@@ -197,13 +201,21 @@ export function DiagnosisViewer({
           </div>
         )}
 
-        {/* WHAT WENT WRONG */}
+        {/* WHAT WENT WRONG (or WHAT HAPPENED on a successful response) */}
         <div className="mt-5">
           <h3 className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-            What Went Wrong
+            {observationStatus !== null &&
+            observationStatus !== undefined &&
+            observationStatus >= 200 &&
+            observationStatus < 300
+              ? "What Happened"
+              : "What Went Wrong"}
           </h3>
           <p className="mt-1.5 text-xs leading-relaxed text-slate-800">
-            {whatWentWrong || "Run a test to generate an AI diagnosis with grounded citations."}
+            {status === "running"
+              ? "Diagnosing… grounding the answer in the retrieved sources."
+              : whatWentWrong ||
+                "Run a test to generate an AI diagnosis with grounded citations."}
           </p>
         </div>
 

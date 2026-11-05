@@ -16,3 +16,6 @@ data/*.sqlite3
 data/raw/
 eval/results/*.json
 demo-backup.mp4
+
+# TypeScript incremental build cache
+frontend/tsconfig.tsbuildinfo

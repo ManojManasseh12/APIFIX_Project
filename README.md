@@ -14,7 +14,7 @@ This repository is the working scaffold for the 5-day plan. It is deliberately a
 - Local retrieval (Gemini embeddings + NumPy) and Supabase pgvector retrieval.
 - Upload-based RAG ingestion with Gemini embeddings, persistent ChromaDB, BM25 keyword search, and hybrid retrieval.
 - Seed knowledge base (`data/kb_chunks.jsonl`, 88 chunks) auto-loaded into Chroma on first use, so uploads add to it instead of hiding it.
-- Gemini → Groq → Mistral fallback adapters with quota-aware model/key switching.
+- Groq → Gemini → Mistral → NVIDIA fallback adapters with quota-aware model/key switching.
 - SSE diagnosis endpoint with citations and a JSON patch.
 - Editable patch before retest, including a prompt for redacted token/header values.
 - **Ask API tab**: grounded, streaming Q&A for API concepts, doubts, and fixes.
@@ -68,25 +68,6 @@ evidence are reported as abstentions and excluded from Recall@5/MRR averages.
 - Playwright/CORS evidence is intentionally not implemented.
 - No production auth, multi-tenancy, or deployment hardening.
 
-## Deliverables
-
-| File | Purpose |
-|---|---|
-| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_5_Day_Plan.md` | Condensed 5-day plan |
-| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_5_Day_Plan.pdf` | 18-page A4 plan (verified render) |
-| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_5_Day_Plan.docx` | Editable plan |
-| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_Full_Process_Guide.md` | 12-phase build runbook |
-| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_Full_Process_Guide.pdf` | 75-page A4 runbook (verified render) |
-| `/media/manoj/Windows/Users/manoj/Downloads/files/APIFix_AI_Full_Process_Guide.docx` | Editable runbook |
-
-Copies of the Markdown live in `docs/`. Regenerate the PDF/DOCX with `docs/md_to_html.py` plus LibreOffice:
-
-```bash
-python docs/md_to_html.py docs/APIFix_AI_Full_Process_Guide.md docs/APIFix_AI_Full_Process_Guide.html
-libreoffice --headless --convert-to pdf docs/APIFix_AI_Full_Process_Guide.html
-libreoffice --headless --convert-to 'docx:MS Word 2007 XML' docs/APIFix_AI_Full_Process_Guide.html
-```
-
 ## Repository layout
 
 ```text
@@ -102,10 +83,9 @@ backend/data/chroma/ persistent ChromaDB files (gitignored)
 backend/mock_api/    deterministic local API
 backend/scripts/     provider check, ingestion, local index, scenario runner
 backend/tests/       unit, route, retrieval, security, and seed tests
-data/                datasets + knowledge-base seed
+data/                knowledge base + datasets
 eval/                case requests, evidence map, evaluation runner
 frontend/            React + Vite + Tailwind UI
-docs/                plan, process guide, demo script, limitations
 ```
 
 ## Quick start
@@ -131,9 +111,10 @@ before building the index. This works without Supabase:
 python backend/scripts/build_local_index.py
 ```
 
-The script reads `data/kb_seed.csv`, calls the Gemini embedding API, and writes
-`data/kb_embeddings.npy` and `data/kb_meta.json`. Rebuild the index whenever
-`EMBED_MODEL` or `EMBED_DIM` changes.
+The script reads `data/kb_chunks.jsonl` (the canonical 88-chunk knowledge base —
+the same file the backend auto-seeds from), calls the Gemini embedding API, and
+writes `data/kb_embeddings.npy` and `data/kb_meta.json`. Rebuild the index
+whenever `EMBED_MODEL` or `EMBED_DIM` changes.
 
 ### 2a. Upload and index documents with ChromaDB
 
@@ -389,5 +370,3 @@ The runner reads `eval/eval_questions.jsonl` and prints Recall@5 and MRR for
 dense, keyword, and hybrid retrieval.
 
 ---
-
-**Read next:** `docs/APIFix_AI_5_Day_Plan.md` for the schedule and `docs/APIFix_AI_Full_Process_Guide.md` for the complete build runbook.

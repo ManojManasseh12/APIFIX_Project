@@ -45,6 +45,10 @@ export function ResponseViewer({
       ? "bg-[#fef3c7] text-[#92400e]"
       : "bg-rose-100 text-rose-800";
 
+  const sizeKb = observation.body_preview
+    ? `${(observation.body_preview.length / 1024).toFixed(1)} KB`
+    : null;
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       {/* Header */}
@@ -57,8 +61,9 @@ export function ResponseViewer({
 
       {/* Sub-meta */}
       <div className="mt-1 text-xs text-slate-400">
-        {observation.latency_ms} ms · {observation.size_kb || "0.3 KB"} · browser (CORS) check:{" "}
-        {observation.cors_status || "allowed"}
+        {observation.latency_ms} ms
+        {sizeKb ? ` · ${sizeKb}${observation.truncated ? " (truncated)" : ""}` : ""}
+        {observation.error_message ? ` · ${observation.error_message}` : ""}
       </div>
 
       {/* Response Body Box */}

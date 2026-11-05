@@ -71,7 +71,13 @@ export function RequestBuilder({
       <div className="flex items-center gap-2">
         <select
           value={spec.method}
-          onChange={(e) => onChangeSpec({ ...spec, method: e.target.value })}
+          onChange={(e) => {
+            const method = e.target.value;
+            // GET/HEAD requests must not carry a body; clear stale preset bodies
+            const body =
+              method === "GET" || method === "HEAD" ? null : spec.body;
+            onChangeSpec({ ...spec, method, body });
+          }}
           className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
         >
           {["POST", "GET", "PUT", "PATCH", "DELETE", "HEAD"].map((m) => (
@@ -98,6 +104,15 @@ export function RequestBuilder({
         </button>
       </div>
 
+      {/* QUESTION FOR THE AI (otherwise a preset's hidden question leaks in) */}
+      <input
+        type="text"
+        value={spec.question}
+        onChange={(e) => onChangeSpec({ ...spec, question: e.target.value })}
+        placeholder="Question for the AI (optional) — what do you want to know about this request?"
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700 shadow-2xs focus:border-blue-500 focus:outline-none"
+      />
+
       {/* TABS ROW */}
       <div className="mt-3.5 flex border-b border-slate-200 text-xs">
         <button
@@ -118,7 +133,7 @@ export function RequestBuilder({
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          Headers ({headerCount || 2})
+          Headers ({headerCount})
         </button>
         <button
           onClick={() => setActiveTab("auth")}

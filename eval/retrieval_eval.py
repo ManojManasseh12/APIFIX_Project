@@ -1,3 +1,9 @@
+"""Legacy retrieval evaluation driven by evaluation_cases.csv + evidence_map.json.
+
+Prefer `run_eval.py` (eval_questions.jsonl, dev/heldout splits, dense/keyword/
+hybrid comparison, auto-seeding). This script exercises the NumPy/Supabase
+retrievers directly against the 50-case fixture CSV.
+"""
 import asyncio
 import csv
 import json
