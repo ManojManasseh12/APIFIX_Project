@@ -47,7 +47,8 @@ class Settings(BaseSettings):
     gemini_model: str = ""
     groq_model: str = ""
     mistral_model: str = ""
-    provider_order: str = "gemini,groq,mistral"
+    # NOTE: PROVIDER_ORDER is read from the environment directly in
+    # app/ai/llm.py (get_providers), so it is intentionally not a field here.
     llm_first_token_timeout_s: float = 20.0
     llm_timeout_s: float = 120.0
     # Retry the same model/key with exponential backoff before moving on.
@@ -65,7 +66,6 @@ class Settings(BaseSettings):
     rrf_keyword_weight: float = Field(default=0.05, ge=0)
     rrf_dense_anchor: int = Field(default=2, ge=0)
 
-    mock_base_url: str = "http://localhost:8001"
     retrieval_backend: str = "local"
     allowed_hosts: str = "localhost:8001"
     frontend_origin: str = "http://localhost:5173"

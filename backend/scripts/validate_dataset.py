@@ -3,8 +3,6 @@ import os
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 # Offline safety
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -12,7 +10,7 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend" / "scripts"))
 
-from chunk_text import token_count
+from chunk_text import token_count  # noqa: E402
 
 MAX_TOKENS = 256
 REQUIRED_COLUMNS = [
@@ -25,45 +23,56 @@ REQUIRED_COLUMNS = [
 ]
 
 
-def validate_dataset(csv_path: Path | None = None) -> bool:
-    path = csv_path or (ROOT / "data" / "kb_seed.csv")
+def load_rows(path: Path) -> list[dict]:
+    """Read the knowledge base. JSONL is the canonical format; CSV supported."""
+    if path.suffix == ".jsonl":
+        with open(path, encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    import pandas as pd
+
+    return pd.read_csv(path).fillna("").to_dict("records")
+
+
+def validate_dataset(kb_path: Path | None = None) -> bool:
+    path = kb_path or (ROOT / "data" / "kb_chunks.jsonl")
     if not path.exists():
         print(f"FAIL: File not found: {path}")
         return False
 
-    df = pd.read_csv(path).fillna("")
-    print(f"Auditing dataset: {path} ({len(df)} chunks)")
+    rows = load_rows(path)
+    print(f"Auditing dataset: {path} ({len(rows)} chunks)")
 
     errors = []
     warnings = []
 
-    # Check required columns
-    for col in REQUIRED_COLUMNS:
-        if col not in df.columns:
-            errors.append(f"Missing required column: {col}")
-
     # Check duplicate chunk IDs
-    duplicates = df[df.duplicated(subset=["chunk_id"], keep=False)]["chunk_id"].unique()
-    if len(duplicates) > 0:
-        errors.append(f"Duplicate chunk IDs found: {list(duplicates)}")
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for row in rows:
+        chunk_id = str(row.get("chunk_id", ""))
+        if chunk_id in seen:
+            duplicates.add(chunk_id)
+        seen.add(chunk_id)
+    if duplicates:
+        errors.append(f"Duplicate chunk IDs found: {sorted(duplicates)}")
 
     # Check each row
-    for idx, row in df.iterrows():
+    for idx, row in enumerate(rows):
         cid = row.get("chunk_id", f"row_{idx}")
 
         # Check empty fields
         for col in REQUIRED_COLUMNS:
-            val = str(row.get(col, "")).strip()
+            val = str(row.get(col, "") or "").strip()
             if not val:
                 errors.append(f"[{cid}] Empty value for required field '{col}'")
 
         # Check URL format
-        url = str(row.get("source_url", "")).strip()
+        url = str(row.get("source_url", "") or "").strip()
         if not (url.startswith("http://") or url.startswith("https://")):
             errors.append(f"[{cid}] Invalid source_url (must start with http:// or https://): '{url}'")
 
         # Measure tokens
-        text = str(row.get("chunk_text", "")).strip()
+        text = str(row.get("chunk_text", "") or "").strip()
         cnt = token_count(text)
         if cnt > MAX_TOKENS:
             errors.append(f"[{cid}] Token count exceeds MiniLM limit of {MAX_TOKENS}: {cnt} tokens")
@@ -76,7 +85,7 @@ def validate_dataset(csv_path: Path | None = None) -> bool:
         with open(evidence_path, "r", encoding="utf-8") as f:
             evidence_map = json.load(f)
 
-        existing_cids = set(df["chunk_id"].tolist())
+        existing_cids = {str(row.get("chunk_id", "")) for row in rows}
         missing_cids = set()
         for case_id, exp_cids in evidence_map.items():
             for exp_cid in exp_cids:
@@ -90,7 +99,7 @@ def validate_dataset(csv_path: Path | None = None) -> bool:
 
     # Report results
     print(f"\n--- Validation Summary ---")
-    print(f"Total Chunks: {len(df)}")
+    print(f"Total Chunks: {len(rows)}")
     print(f"Total Errors: {len(errors)}")
     print(f"Total Warnings: {len(warnings)}")
 
@@ -113,4 +122,3 @@ if __name__ == "__main__":
     p = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     ok = validate_dataset(p)
     sys.exit(0 if ok else 1)
-

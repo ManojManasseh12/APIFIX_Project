@@ -19,11 +19,24 @@ PIPELINE = "v1"
 
 
 def main(csv_path: str | None = None):
+    import json
     import os
 
-    path = Path(csv_path) if csv_path else ROOT / "data" / "kb_seed.csv"
-    df = pd.read_csv(path).fillna("")
-    texts = df["chunk_text"].tolist()
+    # data/kb_chunks.jsonl is the canonical knowledge base (same file the
+    # backend auto-seeds from). A CSV path can still be passed explicitly.
+    if csv_path:
+        path = Path(csv_path)
+    else:
+        path = ROOT / "data" / "kb_chunks.jsonl"
+
+    if path.suffix == ".jsonl":
+        with open(path, encoding="utf-8") as f:
+            rows: list[dict] = [json.loads(line) for line in f if line.strip()]
+    else:
+        import pandas as pd
+
+        rows = pd.read_csv(path).fillna("").to_dict("records")
+    texts = [row["chunk_text"] for row in rows]
 
     print(
         f"Embedding {len(texts)} chunks with {embedding.model_name} "
@@ -34,7 +47,7 @@ def main(csv_path: str | None = None):
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         register_vector(conn)
         with conn.cursor() as cur:
-            for row, vector in zip(df.to_dict("records"), embeddings):
+            for row, vector in zip(rows, embeddings):
                 cur.execute(
                     """
                     insert into kb_chunks (
@@ -80,7 +93,7 @@ def main(csv_path: str | None = None):
                         "source_file": row.get("source_file") or path.name,
                     },
                 )
-    print(f"upserted {len(df)} chunks")
+    print(f"upserted {len(rows)} chunks")
 
 
 if __name__ == "__main__":

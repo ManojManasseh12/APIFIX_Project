@@ -5,13 +5,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.db.schema import initialize_schema_async
+from app.db import runs
 from app.routes import (
     ask,
     diagnose,
     health,
     ingest,
     retest,
+    runs as runs_routes,
     search,
     test,
     upload,
@@ -27,8 +28,9 @@ logger = logging.getLogger("uvicorn.error")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing run database...")
-    await initialize_schema_async()
+    backend = "Supabase" if runs.uses_supabase() else "SQLite"
+    logger.info("Initializing run history (%s backend)...", backend)
+    await runs.initialize_async()
     yield
     logger.info("App shutdown")
 
@@ -49,13 +51,12 @@ def landing_page():
     return {"message": "APIFix AI backend", "docs": "/docs"}
 
 
-app.include_router(health.router)
 app.include_router(health.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
 app.include_router(diagnose.router, prefix="/api")
 app.include_router(ask.router, prefix="/api")
 app.include_router(retest.router, prefix="/api")
-
-for router in (upload.router, ingest.router, search.router):
-    app.include_router(router)
-    app.include_router(router, prefix="/api")
+app.include_router(runs_routes.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
+app.include_router(ingest.router, prefix="/api")
+app.include_router(search.router, prefix="/api")

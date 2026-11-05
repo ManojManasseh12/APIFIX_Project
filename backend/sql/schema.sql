@@ -51,3 +51,18 @@ create index if not exists kb_chunks_filter_idx
 
 create index if not exists kb_chunks_source_file_idx
   on kb_chunks (source_file);
+
+-- Diagnosis run history. The backend also creates this automatically at
+-- startup (create table if not exists), so running it here is optional.
+create table if not exists runs (
+  run_id text primary key,
+  created_at timestamptz not null default now(),
+  method text,
+  url text,
+  status int,
+  error_type text,
+  retrieved_ids jsonb not null default '[]'::jsonb,
+  provider text,
+  diagnosis text,
+  patch jsonb
+);
