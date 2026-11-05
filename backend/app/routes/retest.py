@@ -3,7 +3,8 @@ from pydantic import BaseModel
 
 from app.core.errors import ApprovalRequired
 from app.core.models import Observation, Patch, RequestSpec
-from app.core.security.approval import require_approval
+from app.core.security import require_approval
+from app.core.security import redact_headers
 from app.core.retest import apply_patch, diff
 from app.core.tester import execute
 
@@ -27,10 +28,7 @@ async def retest(payload: RetestIn):
     return {
         "patched_request": {
             **patched.model_dump(mode="json", exclude={"headers", "body"}),
-            "headers": {
-                k: "<REDACTED>" if k.lower() == "authorization" else v
-                for k, v in patched.headers.items()
-            },
+            "headers": redact_headers(patched.headers),
         },
         "observation": after.model_dump(mode="json"),
         "diff": diff(payload.before, after, patched.expected_status),

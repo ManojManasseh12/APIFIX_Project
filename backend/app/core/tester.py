@@ -5,8 +5,8 @@ import httpx
 from app.core.config import settings
 from app.core.errors import DNSError, PolicyError
 from app.core.models import Observation, RequestSpec
-from app.core.security.redactor import redact_headers, redact_text
-from app.core.security.ssrf import check_url
+from app.core.security import redact_headers, redact_text
+from app.core.security import check_url
 from app.utils.ids import generate_uuid
 
 MAX_BODY_BYTES = 256 * 1024

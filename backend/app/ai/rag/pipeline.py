@@ -5,7 +5,7 @@ from typing import Any, Protocol
 from app.ai.rag.batch_processor import batch_processor
 from app.ai.rag.data_loader import data_process
 from app.ai.rag.embedding import embedding
-from app.ai.rag.models import Chunk, SearchHit
+from app.core.models import Chunk, SearchHit
 from app.ai.rag.vector_store import get_store, vector_store
 from app.core.config import settings
 from app.ai.rag.retriever import RetrievalResult, detect_version, get_retriever

@@ -1,9 +1,9 @@
 import pytest
 
 from app.core.errors import PolicyError
-from app.core.security import ssrf
-from app.core.security.redactor import redact_headers, redact_text
-from app.core.security.ssrf import check_url
+from app.core import security as ssrf
+from app.core.security import redact_headers, redact_text
+from app.core.security import check_url
 
 
 def test_redacts_bearer_token():

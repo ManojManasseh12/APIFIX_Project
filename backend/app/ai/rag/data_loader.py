@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from app.ai.rag.models import Chunk
+from app.core.models import Chunk
 from app.core.config import settings
 from scripts.chunk_text import chunk_by_tokens
 from scripts.parse_openapi import parse_openapi

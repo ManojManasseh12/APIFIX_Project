@@ -52,3 +52,17 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[AskMessage] = Field(default_factory=list, max_length=8)
 
+
+class Chunk(BaseModel):
+    id: str
+    title: str
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SearchHit(BaseModel):
+    chunk_id: str
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    score: float
+

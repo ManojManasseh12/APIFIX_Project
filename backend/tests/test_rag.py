@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.ai.rag.data_loader import DataProcess
 from app.ai.rag.embedding import embedding
-from app.ai.rag.models import Chunk, SearchHit
+from app.core.models import Chunk, SearchHit
 from app.ai.rag.pipeline import retrieve_for_api
 from app.ai.rag.vector_store import VectorStore
 from app.core.config import settings
@@ -247,7 +247,7 @@ def test_upload_rejects_path_traversal_and_bad_extensions(
     client = TestClient(app)
 
     response = client.post(
-        "/upload",
+        "/api/upload",
         files=[("files", (filename, b"not saved"))],
     )
 
@@ -261,7 +261,7 @@ def test_upload_enforces_maximum_size(tmp_path, monkeypatch):
     client = TestClient(app)
 
     response = client.post(
-        "/upload",
+        "/api/upload",
         files=[("files", ("large.txt", b"x" * (1024 * 1024 + 1)))],
     )
 
@@ -285,7 +285,7 @@ def test_upload_list_delete_and_api_aliases(tmp_path, monkeypatch):
     )
     assert response.status_code == 200
     filename = response.json()["files"][0]["name"]
-    assert client.get("/files").json()["files"][0]["name"] == filename
+    assert client.get("/api/files").json()["files"][0]["name"] == filename
     assert client.delete(f"/api/files/{filename}").json()["chunks_deleted"] == 2
     assert not (tmp_path / filename).exists()
     assert client.get("/api/health").json()["ok"] is True
@@ -333,7 +333,7 @@ def test_ingest_and_search_routes_return_expected_shapes(tmp_path, monkeypatch):
 
     ingest_response = client.post("/api/ingest", json={"files": ["guide.txt"]})
     search_response = client.post(
-        "/search", json={"query": "API request", "mode": "keyword", "k": 3}
+        "/api/search", json={"query": "API request", "mode": "keyword", "k": 3}
     )
     stats_response = client.get("/api/kb/stats")
 

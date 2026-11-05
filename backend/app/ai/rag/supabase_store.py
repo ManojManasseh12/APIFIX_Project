@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any
 
 from app.ai.rag.fusion import dense_anchored_rrf
-from app.ai.rag.models import Chunk, SearchHit
+from app.core.models import Chunk, SearchHit
 from app.core.config import settings
 
 _SELECT_COLUMNS = """

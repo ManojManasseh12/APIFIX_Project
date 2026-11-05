@@ -1,7 +1,7 @@
 import pytest
 
 from app.ai.rag import vector_store as vector_store_module
-from app.ai.rag.models import Chunk
+from app.core.models import Chunk
 from app.ai.rag.supabase_store import SupabaseStore
 from app.core.config import settings
 

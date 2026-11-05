@@ -1,7 +1,7 @@
 import asyncio
 
 from app.ai.rag.batch_processor import BatchProcessor, BatchSettings
-from app.ai.rag.models import Chunk
+from app.core.models import Chunk
 
 
 class FakeEmbedder:

@@ -10,7 +10,7 @@ import uvicorn
 from app.ai.rag.vector_store import vector_store
 from app.core.config import settings
 from app.core.models import Observation
-from app.core.security import ssrf
+from app.core import security as ssrf
 from app.main import app
 from app.ai.rag.retriever import RetrievalResult
 from mock_api.main import app as mock_app

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from google import genai
 
 from app.ai.llm import is_retryable_error
-from app.ai.rag.models import Chunk
+from app.core.models import Chunk
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)

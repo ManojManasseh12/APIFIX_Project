@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from app.ai.context import build_ask_context
+from app.ai.prompts import build_ask_context
 from app.ai.llm import get_providers, stream_with_fallback
 from app.ai.prompts import ASK_SYSTEM_PROMPT, CITATION_RE
 from app.ai.rag.pipeline import retrieve_for_api
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
-from app.routes.sse import sse
+from app.routes import sse
 
 router = APIRouter(tags=["assistant"])
 

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.ai.rag.embedding import embedding
-from app.ai.rag.models import Chunk
+from app.core.models import Chunk
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
