@@ -180,7 +180,7 @@ python run_mock.py
 From the repository root:
 
 ```bash
-python run_api.py
+python server.py
 ```
 
 ### 5. Run the frontend
