@@ -1,5 +1,10 @@
 # APIFix AI
 
+> Full technical documentation lives in [`docs/README.md`](./docs/README.md) —
+> architecture and connectivity, backend module-by-module, frontend state and
+> contracts, knowledge base + retrieval + eval, and the security gates.
+
+
 **Test APIs. Find evidence. Understand failures. Verify fixes.**
 
 APIFix AI is a documentation-grounded API debugging assistant. It sends a real request, captures the observation, retrieves relevant documentation, streams a diagnosis with citations, suggests a patch, and retests only after approval.
