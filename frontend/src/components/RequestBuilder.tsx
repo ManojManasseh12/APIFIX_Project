@@ -67,7 +67,7 @@ export function RequestBuilder({
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-      {/* URL BAR ROW */}
+      {/* URL BAR ROW — method + run button; URL gets its own full-width row */}
       <div className="flex items-center gap-2">
         <select
           value={spec.method}
@@ -87,22 +87,22 @@ export function RequestBuilder({
           ))}
         </select>
 
-        <input
-          type="text"
-          value={spec.url}
-          onChange={(e) => onChangeSpec({ ...spec, url: e.target.value })}
-          placeholder="https://api.example.com/..."
-          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
-        />
-
         <button
           onClick={onRunTest}
           disabled={busy}
-          className="rounded-xl bg-[#2563eb] px-5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
+          className="ml-auto rounded-xl bg-[#2563eb] px-5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? "Running..." : "Run test"}
         </button>
       </div>
+
+      <input
+        type="text"
+        value={spec.url}
+        onChange={(e) => onChangeSpec({ ...spec, url: e.target.value })}
+        placeholder="https://api.example.com/..."
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
+      />
 
       {/* QUESTION FOR THE AI (otherwise a preset's hidden question leaks in) */}
       <input

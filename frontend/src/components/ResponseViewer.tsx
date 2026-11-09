@@ -11,7 +11,7 @@ export function ResponseViewer({
     return (
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <h2 className="text-sm font-bold text-slate-900">Response</h2>
-        <div className="mt-4 flex h-36 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-xs text-slate-400">
+        <div className="mt-4 flex h-36 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-xs text-slate-500">
           Click "Run test" to execute the request.
         </div>
       </section>
@@ -60,7 +60,7 @@ export function ResponseViewer({
       </div>
 
       {/* Sub-meta */}
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-slate-500">
         {observation.latency_ms} ms
         {sizeKb ? ` · ${sizeKb}${observation.truncated ? " (truncated)" : ""}` : ""}
         {observation.error_message ? ` · ${observation.error_message}` : ""}
@@ -74,7 +74,7 @@ export function ResponseViewer({
       </div>
 
       {/* Footer text */}
-      <div className="mt-2 text-[11px] text-slate-400">
+      <div className="mt-2 text-[11px] text-slate-500">
         {isMockData ? "Sample data for the mockup." : "Live execution observation."}
       </div>
     </section>

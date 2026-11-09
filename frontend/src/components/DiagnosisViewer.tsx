@@ -145,13 +145,13 @@ export function DiagnosisViewer({
   const isVerified = Boolean(retestResult);
 
   return (
-    <section className="flex flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs transition-all lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)]">
+    <section className="flex flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs transition-all lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)]">
       {/* Scrollable content area; the action footer below stays pinned */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-900">AI diagnosis</h2>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             {sourceCount > 0
               ? `grounded in ${sourceCount} source${sourceCount === 1 ? "" : "s"}`
               : "grounded in your knowledge base"}
@@ -353,7 +353,7 @@ export function DiagnosisViewer({
           </button>
         </div>
 
-        <p className="mt-3 text-center text-[11px] text-slate-400">
+        <p className="mt-3 text-center text-[11px] text-slate-500">
           {missingSecrets
             ? "Fill in the redacted header value(s) to enable the retest."
             : unresolvedRedaction
