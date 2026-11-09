@@ -394,6 +394,7 @@ export default function App() {
                 spec={spec}
                 onChangeSpec={setSpec}
                 onRunTest={handleRunTest}
+                observationStatus={observation?.status ?? null}
                 busy={status === "running"}
               />
               <ResponseViewer observation={observation} isMockData={isMockData} />

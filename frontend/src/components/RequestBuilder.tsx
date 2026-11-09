@@ -6,11 +6,13 @@ export function RequestBuilder({
   onChangeSpec,
   onRunTest,
   busy,
+  observationStatus,
 }: {
   spec: RequestSpec;
   onChangeSpec: (spec: RequestSpec) => void;
   onRunTest: () => void;
   busy: boolean;
+  observationStatus?: number | null;
 }) {
   const [activeTab, setActiveTab] = useState<"body" | "headers" | "auth" | "params">("body");
 
@@ -112,12 +114,17 @@ export function RequestBuilder({
         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
       />
 
-      {/* QUESTION FOR THE AI (otherwise a preset's hidden question leaks in) */}
+      {/* QUESTION FOR THE AI — empty by default; the placeholder suggests a
+          live, status-aware question so baked presets never leak a wrong one */}
       <input
         type="text"
         value={spec.question}
         onChange={(e) => onChangeSpec({ ...spec, question: e.target.value })}
-        placeholder="Question for the AI (optional) — what do you want to know about this request?"
+        placeholder={
+          observationStatus !== null && observationStatus !== undefined && observationStatus >= 400
+            ? `Question for the AI (optional) — e.g. "Why did this request return ${observationStatus}"?`
+            : "Question for the AI (optional) — the search adapts to the result automatically"
+        }
         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700 shadow-2xs focus:border-blue-500 focus:outline-none"
       />
 

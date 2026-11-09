@@ -21,7 +21,7 @@ export const PRESETS: ScenarioPreset[] = [
       },
       timeout_s: 5,
       expected_status: 201,
-      question: "Why does this request return 422?",
+      question: "",
       approved: true,
     },
     sampleObservation: {
@@ -101,7 +101,7 @@ export const PRESETS: ScenarioPreset[] = [
       body: null,
       timeout_s: 5,
       expected_status: 200,
-      question: "Why does this request return 401?",
+      question: "",
       approved: false,
     },
     sampleObservation: {
@@ -175,7 +175,7 @@ export const PRESETS: ScenarioPreset[] = [
       body: null,
       timeout_s: 5,
       expected_status: 200,
-      question: "Inspect user details",
+      question: "",
       approved: false,
     },
     sampleObservation: {
@@ -229,7 +229,7 @@ export const PRESETS: ScenarioPreset[] = [
       body: null,
       timeout_s: 5,
       expected_status: 204,
-      question: "Why did DELETE return 404?",
+      question: "",
       approved: true,
     },
     sampleObservation: {
