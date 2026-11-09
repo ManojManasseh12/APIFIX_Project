@@ -40,6 +40,8 @@ export function DiagnosisViewer({
   onCopyCurl,
   retesting,
   observationStatus,
+  providerLabel,
+  fallbacks,
 }: {
   whatWentWrong: string;
   suggestedFix: string;
@@ -53,6 +55,8 @@ export function DiagnosisViewer({
   onCopyCurl: () => Promise<boolean> | boolean;
   retesting: boolean;
   observationStatus?: number | null;
+  providerLabel?: string | null;
+  fallbacks?: string[];
 }) {
   const [copied, setCopied] = useState(false);
   const [patchDraft, setPatchDraft] = useState("");
@@ -157,6 +161,22 @@ export function DiagnosisViewer({
               : "grounded in your knowledge base"}
           </span>
         </div>
+        {providerLabel && (
+          <div
+            className="mt-1.5 inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-[11px] font-medium text-teal-800"
+            title={
+              fallbacks && fallbacks.length > 0
+                ? `Failovers before this provider: ${fallbacks.join("; ")}`
+                : "Provider label streamed live with this diagnosis"
+            }
+          >
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-teal-500 opacity-75" />
+            </span>
+            served by{" "}
+            <span className="font-mono font-semibold">{providerLabel}</span>
+          </div>
+        )}
 
         {/* Step Pills */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2">

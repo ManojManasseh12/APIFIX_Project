@@ -44,6 +44,10 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [retestResult, setRetestResult] = useState<RetestResult | null>(null);
   const [retesting, setRetesting] = useState<boolean>(false);
+  // Which provider actually served the streamed diagnosis (label from the
+  // stream) and any failovers recorded on the way.
+  const [providerLabel, setProviderLabel] = useState<string | null>(null);
+  const [fallbacks, setFallbacks] = useState<string[]>([]);
   const [isMockData, setIsMockData] = useState<boolean>(true);
 
   // Recent run history from the backend (Supabase / SQLite)
@@ -95,6 +99,8 @@ export default function App() {
     setStatus("running");
     setError(null);
     setIsMockData(false);
+    setProviderLabel(null);
+    setFallbacks([]);
     setRetestResult(null);
     setWhatWentWrong("");
     setSuggestedFix("");
@@ -114,6 +120,15 @@ export default function App() {
           }
           if (event === "retrieval") {
             setCitations(data.chunks ?? []);
+          }
+          if (event === "provider") {
+            setProviderLabel(data.name ?? null);
+          }
+          if (event === "provider_fallback") {
+            setFallbacks((prev) => [
+              ...prev,
+              `${data.from}: ${data.reason}`,
+            ]);
           }
           if (event === "done") {
             if (data.diagnosis) {
@@ -415,6 +430,8 @@ export default function App() {
                 onCopyCurl={handleCopyCurl}
                 retesting={retesting}
                 observationStatus={observation?.status}
+                providerLabel={providerLabel}
+                fallbacks={fallbacks}
               />
             </div>
           </div>
