@@ -99,7 +99,15 @@ export function RequestBuilder({
       <input
         type="text"
         value={spec.url}
-        onChange={(e) => onChangeSpec({ ...spec, url: e.target.value })}
+        onChange={(e) => {
+          // Tolerate a method word pasted with the URL ("GET https://...") —
+          // the dropdown already carries the method; strip it here.
+          const cleaned = e.target.value.replace(
+            /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(?=https?:\/\/)/i,
+            ""
+          );
+          onChangeSpec({ ...spec, url: cleaned });
+        }}
         placeholder="https://api.example.com/..."
         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
       />
