@@ -4,9 +4,11 @@ and the approval gate for state-changing methods."""
 import ipaddress
 import re
 import socket
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.core.config import settings
 from app.core.errors import ApprovalRequired, DNSError, PolicyError
 from app.core.models import RequestSpec
 
@@ -29,6 +31,50 @@ BLOCKED_NETS = [
 ]
 
 LOOPBACK_ALLOW = {"localhost:8001", "127.0.0.1:8001"}
+
+# Hosts trusted via the app API (GET/POST /api/allowed-hosts) live in this
+# file, merged with the ALLOWED_HOSTS env setting. Editing from the app
+# means new target APIs need no backend restart.
+ALLOWED_HOSTS_FILE = Path("data/allowed_hosts.txt")
+
+_HOST_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{2,5})?$")
+
+
+def load_allowed_hosts() -> set[str]:
+    """Env allowlist merged with hosts trusted through the app UI."""
+    hosts = set(settings.allowed_host_set)
+    try:
+        for line in ALLOWED_HOSTS_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip().lower()
+            if line and not line.startswith("#") and _HOST_PATTERN.match(line):
+                hosts.add(line)
+    except FileNotFoundError:
+        pass
+    return hosts
+
+
+def trust_host(raw_host: str) -> set[str]:
+    """Append a host to the app-managed allowlist file and return the set.
+
+    Only hostname[:port] entries are accepted; IP-range and private-address
+    protection is still applied at request time, so trusting a host can
+    never expose internal destinations.
+    """
+    host = raw_host.strip().lower().rstrip(".")
+    if not _HOST_PATTERN.match(host) or len(host) > 253:
+        raise PolicyError(f"invalid hostname: {raw_host!r}")
+    try:
+        existing = {
+            line.strip()
+            for line in ALLOWED_HOSTS_FILE.read_text(encoding="utf-8").splitlines()
+        }
+    except FileNotFoundError:
+        existing = set()
+    if host not in existing:
+        ALLOWED_HOSTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with ALLOWED_HOSTS_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(f"{host}\n")
+    return load_allowed_hosts()
 
 
 def _key(url) -> str:

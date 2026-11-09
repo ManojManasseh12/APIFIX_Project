@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.db import runs
 from app.routes import (
     ask,
+    policy,
     diagnose,
     health,
     ingest,
@@ -57,6 +58,7 @@ app.include_router(diagnose.router, prefix="/api")
 app.include_router(ask.router, prefix="/api")
 app.include_router(retest.router, prefix="/api")
 app.include_router(runs_routes.router, prefix="/api")
+app.include_router(policy.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
 app.include_router(ingest.router, prefix="/api")
 app.include_router(search.router, prefix="/api")

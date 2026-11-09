@@ -6,7 +6,7 @@ from app.core.config import settings
 from app.core.errors import DNSError, PolicyError
 from app.core.models import Observation, RequestSpec
 from app.core.security import redact_headers, redact_text
-from app.core.security import check_url
+from app.core.security import check_url, load_allowed_hosts
 from app.utils.ids import generate_uuid
 
 MAX_BODY_BYTES = 256 * 1024
@@ -17,7 +17,7 @@ async def execute(spec: RequestSpec) -> Observation:
     headers = dict(spec.headers)
 
     try:
-        check_url(str(spec.url), settings.allowed_host_set)
+        check_url(str(spec.url), load_allowed_hosts())
     except PolicyError as exc:
         return Observation(
             request_id=request_id,

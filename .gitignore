@@ -19,3 +19,6 @@ demo-backup.mp4
 
 # TypeScript incremental build cache
 frontend/tsconfig.tsbuildinfo
+
+# app-managed SSRF allowlist (per-user trusted hosts)
+data/allowed_hosts.txt
