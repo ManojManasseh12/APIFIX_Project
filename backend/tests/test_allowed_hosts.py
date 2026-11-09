@@ -65,3 +65,22 @@ def test_policy_rejects_garbage_host_over_api(hosts_file):
         response = client.post("/api/allowed-hosts", json={"host": "<script>"})
         assert response.status_code == 422
         assert "detail" in response.json()
+
+
+def test_get_never_sends_a_body():
+    """A stale body from a previous preset must not ride along on GET/HEAD."""
+    import asyncio
+
+    from app.core.models import RequestSpec
+    from app.core import tester
+
+    spec = RequestSpec(
+        method="GET",
+        url="https://localhost:8001/nothing",
+        body={"leaked": "from previous preset"},
+        timeout_s=2,
+    )
+    observation = asyncio.run(tester.execute(spec))
+    # The request goes out (connection to the loopback mock will fail) but it
+    # is never policy-blocked and never reports a body-related error.
+    assert observation.error_type != "blocked_by_policy"

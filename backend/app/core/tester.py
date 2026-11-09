@@ -36,11 +36,16 @@ async def execute(spec: RequestSpec) -> Observation:
         "timeout": httpx.Timeout(spec.timeout_s, connect=5.0),
         "follow_redirects": False,
     }
-    if isinstance(spec.body, (dict, list)):
-        kwargs["json"] = spec.body
+    # GET/HEAD are defined to have no body — whatever the UI loaded (a stale
+    # preset body left over from switching presets) must not leak into them.
+    body_for_method = (
+        None if spec.method in ("GET", "HEAD", "OPTIONS") else spec.body
+    )
+    if isinstance(body_for_method, (dict, list)):
+        kwargs["json"] = body_for_method
         headers.setdefault("Content-Type", "application/json")
-    elif isinstance(spec.body, str):
-        kwargs["content"] = spec.body.encode("utf-8")
+    elif isinstance(body_for_method, str):
+        kwargs["content"] = body_for_method.encode("utf-8")
 
     started = time.perf_counter()
     try:
