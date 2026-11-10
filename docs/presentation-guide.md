@@ -108,7 +108,76 @@ The differentiator vs Postman: Postman *executes* requests; it never
 > (`eval/run_eval.py`) scoring Recall@5 and MRR; the hybrid fusion settings
 > came from that harness. Discipline line: *measure before adding machinery*."
 
-## Load-bearing numbers (say them with confidence)
+## The workflow — where the input enters and every hop it takes
+
+### Input entry points (4, all in the UI)
+
+| Input | Entered where | Goes to |
+|---|---|---|
+| 1. The API request (method, URL, body/headers/auth/question) | `RequestBuilder.tsx` (or a preset click in `Sidebar.tsx`) | `POST /api/diagnose` — the main engine |
+| 2. A natural-language question | `AskPanel.tsx` chat box | `POST /api/ask` — Q&A engine |
+| 3. An OpenAPI file | `Sidebar.tsx` "Import OpenAPI file" | `POST /api/upload` → `POST /api/ingest` (chunks the spec into the KB) |
+| 4. A host to trust | `ResponseViewer.tsx` "Allow host" button | `POST /api/allowed-hosts` (appends to `data/allowed_hosts.txt`) |
+
+### Journey of input #1 — the diagnose run (the demo's main path)
+
+```
+YOU (RequestBuilder: GET http://localhost:8001/v1/profile)
+ │
+ ①  App.tsx.runDiagnose → streamDiagnosis() [lib/sse.ts]
+      POST /api/diagnose  (Vite proxy 5173→8000)
+ │
+ ②  routes/diagnose.py: diagnose() → events() SSE generator starts
+ │
+ ③  core/security.py: require_approval(spec)
+      POST/PUT/PATCH/DELETE without consent → approval_required event → UI asks you
+ │
+ ④  core/security.py: check_url()
+      scheme ok? host allowlisted? DNS resolves to a public IP? — else blocked_by_policy
+ │
+ ⑤  core/tester.py: execute(spec)
+      REAL HTTP request via HTTPX → Observation (status, headers, body, latency)
+      └─▶ SSE "observation" ──▶ ResponseViewer renders the live status card
+ │
+ ⑥  ai/rag/query.py: build_query(spec, obs)
+      status-aware phrasing: 2xx → "successful response 2xx semantics"
+ │
+ ⑦  ai/rag/embedding.py: embed_prompt  →  rag/supabase_store.py retrieve()
+      dense cosine + keyword tsquery  →  rag/fusion.py: dense_anchored_rrf
+      └─▶ SSE "retrieval" (top-6 chunks) ──▶ SOURCES citation chips light up
+ │
+ ⑧  ai/prompts.py: build_context  →  ai/llm.py: stream_with_fallback
+      Provider chain first-serve; SSE "provider"/"token" events per chunk
+      └─▶ DiagnosisViewer streams text; "served by" pill lights up
+ │
+ ⑨  prompts.py citation/patch parsers  ──▶ SSE "done" (diagnosis + patch)
+      └─▶ db/runs.py: save()  (Postgres `runs` table — never raises)
+ │
+ ⑩  SUGGESTED FIX ... you paste the real token into the redacted field
+      └─▶ POST /api/retest  →  core/retest.py: apply_patch + diff  →  core/tester.py again
+           └─▶ before/after diff (401 → 200) ──▶ "Verified ✓" pill
+```
+
+The one sentence version: **input enters in RequestBuilder, is guarded by
+security.py, executed by tester.py, phrased by query.py, evidenced by the RAG
+pipeline, narrated by the provider chain, saved by runs.py, and finally
+analyzed by retest.py.**
+
+### Why Playwright is NOT in the architecture diagram
+
+The architecture diagram shows the **runtime system** — the components that
+*serve the user*: browser React app → FastAPI → {target API, Postgres, LLM
+providers}. Playwright is not part of that system. It is a **development-time
+test tool** that lives in `frontend/e2e/` and impersonates a browser to prove
+your React app works (the 4 e2e tests). It runs only when *you* run
+`npx playwright test e2e` — a reviewer using the app never touches it.
+
+Same category: pytest (80 backend tests) also doesn't appear in the
+architecture — test instruments don't ship with the architecture, they inspect
+it. If you want to show it visually, draw it **outside** all three boxes with a
+dashed arrow: `Playwright ┄┄▶ Browser app (test-time only)`.
+
+
 
 | Fact | Value |
 |---|---|
