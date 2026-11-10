@@ -32,6 +32,8 @@ It is deliberately a vertical slice, not a production service.
 
 ## How it works
 
+![The request journey — from user input to a verified fix](docs/assets/request-journey.svg)
+
 ```
             ┌───────────────────────────────────────────────┐
             │            Browser (React + Vite)             │

@@ -23,6 +23,24 @@ One-sentence summary of the main flow:
 
 ## 2. Flow A — Run test + live diagnosis (the primary loop)
 
+![The request journey — from user input to a verified fix](./assets/request-journey.svg)
+
+```mermaid
+flowchart TD
+    U["👤 User input<br/>RequestBuilder: method, URL, question"] -->|"POST /api/diagnose (Vite proxy :5173→:8000)"| R["routes/diagnose.py<br/>SSE generator starts"]
+    R --> A["security.require_approval<br/>state-changing methods ask consent first"]
+    A --> S["security.check_url — SSRF guard<br/>scheme → allowlist → DNS/IP block"]
+    S -->|"blocked → Allow-host button"| T["tester.execute — REAL HTTP call<br/>HTTPX → Observation"]
+    T -->|"SSE observation → live card"| Q["rag/query.build_query<br/>status-aware phrasing (2xx → success semantics)"]
+    Q --> E["embed_prompt → store retrieve → dense_anchored_rrf<br/>top-6 evidence chunks"]
+    E -->|"SSE retrieval → SOURCES chips"| L["llm.stream_with_fallback<br/>Groq → Gemini → Mistral → NVIDIA, SSE token stream"]
+    L -->|"SSE token + provider pill"| P["citation/patch parsers → runs.save<br/>Postgres history, never raises"]
+    P -->|"SSE done → SUGGESTED FIX"| RT["retest.apply_patch + diff<br/>secrets substituted only in this call"]
+    RT --> V{"Verified ✓<br/>only after a passing re-run"}
+```
+
+Text version of the same flow, hop by hop:
+
 ```
 YOU (RequestBuilder: GET http://localhost:8001/v1/profile)
  │
@@ -64,7 +82,7 @@ YOU (RequestBuilder: GET http://localhost:8001/v1/profile)
       └─▶ POST /api/retest  →  core/retest.py: apply_patch + diff
            → core/tester.py: execute (patched spec)
            └─▶ before/after diff (e.g. 401 → 200) ──▶ "Verified ✓" pill
-```
+``````
 
 ### Hop table (Flow A)
 
@@ -127,7 +145,29 @@ check_url blocks host X → blocked_by_policy observation
 ```
 
 No restart is required at any point in this flow.
-
+Python
+LLM
+Prompt Engineering
+OOPS
+Types of LLM
+LLM Models
+Tokens, Tokenization, context window, Temperature
+LLM Inference
+Folder Structure
+Networking 
+Naming convention
+Git, GitHub
+Multimodal AI
+HTTP, HTTPS, STATUS CODE
+Prompt Engineering Types
+FastApi
+Rag
+Data ingestion, Reterival, Generation
+Chunk, vector DB, Semantic Search, vector search, keyword search
+Rag weightage
+Types of Rag
+Chunking Types
+Rag Workflow
 ## 6. Flow E — Run history (always side-effect, never blocking)
 
 | Step | Where | Guarantee |
