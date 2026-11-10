@@ -14,6 +14,7 @@ manual tools cannot: explain and verify.
 
 | Document | Contents |
 |---|---|
+| [`workflow.md`](./workflow.md) | **Start here for flows**: every input entry point, the 10-hop diagnose journey, Ask, import, allowlist, history, failover, and why Playwright is test-only |
 | [`architecture.md`](./architecture.md) | The three components, how they connect, every request lifecycle end to end, ports and runs |
 | [`backend.md`](./backend.md) | Module-by-module: every backend file, what it does, why it exists |
 | [`frontend.md`](./frontend.md) | Components, state flow, the SSE contract, presets and types |
