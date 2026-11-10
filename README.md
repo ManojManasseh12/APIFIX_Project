@@ -136,12 +136,13 @@ pip install -r backend/requirements.txt
 cp .env.example .env
 ```
 
-If `python3 -m venv` fails with `ensurepip is not available`, install `python3-venv` (or `python3.12-venv`). This machine had no `pip` and no `venv` support, so the environment was built with `python3 -m venv --without-pip .venv` followed by `get-pip.py`.
+If `python3 -m venv` fails with `ensurepip is not available`, install the
+`python3-venv` (or `python3.12-venv`) package first.
 
 ### 2. Build the local retrieval index
 
-Embeddings use Google's `gemini-embedding-001` (768 dimensions), the same model
-family as `cloud_llm`, so `GEMINI_API_KEY` must be set in `.env` (see step 6)
+Embeddings use Google's `gemini-embedding-001` (768 dimensions), so
+`GEMINI_API_KEY` must be set in `.env` (see step 6)
 before building the index. This works without Supabase:
 
 ```bash
@@ -181,7 +182,7 @@ file.
 
 ### 2b. Batch ingestion
 
-Ingestion follows the same shape as `cloud_llm`: files are processed in batches
+Ingestion is bounded and throttled: files are processed in batches
 of `BATCH_FILE_SIZE` (default 10), up to `BATCH_MAX_CONCURRENCY` (default 4)
 files are prepared at once, duplicate files in the same batch are skipped, and
 chunks are embedded in requests capped at `EMBED_MAX_CHUNKS_PER_REQUEST`
