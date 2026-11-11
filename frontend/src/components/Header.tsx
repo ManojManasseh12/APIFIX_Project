@@ -1,4 +1,11 @@
+import { useEffect, useState } from "react";
+
 export type WorkspaceTab = "diagnose" | "ask";
+
+type HealthInfo = {
+  retrieval_backend?: string;
+  providers?: string[];
+};
 
 export function Header({
   activeTab,
@@ -11,6 +18,28 @@ export function Header({
     { id: "diagnose", label: "Diagnose" },
     { id: "ask", label: "Ask API" },
   ];
+
+  // Status pills reflect the real backend, fetched live from /api/health.
+  const [health, setHealth] = useState<HealthInfo | null>(null);
+  useEffect(() => {
+    fetch("/api/health")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setHealth(data))
+      .catch(() => setHealth(null));
+  }, []);
+
+  const searchLabel =
+    health?.retrieval_backend === "supabase"
+      ? "pgvector + BM25 hybrid (Supabase)"
+      : health?.retrieval_backend === "local"
+        ? "Chroma + BM25 hybrid (local)"
+        : "hybrid retrieval";
+  const modelLabel =
+    health?.providers && health.providers.length > 0
+      ? health.providers
+          .map((family) => family.charAt(0).toUpperCase() + family.slice(1))
+          .join(" → ")
+      : "LLM fallback chain";
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-3">
@@ -62,13 +91,13 @@ export function Header({
       {/* Status Badges */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
-          Runner: <span className="font-semibold text-slate-800">Playwright</span>
+          Runner: <span className="font-semibold text-slate-800">HTTPX async</span>
         </div>
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
-          Search: <span className="font-semibold text-slate-800">Qdrant Cloud, hybrid</span>
+          Search: <span className="font-semibold text-slate-800">{searchLabel}</span>
         </div>
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
-          Model: <span className="font-semibold text-slate-800">Qwen3 4B, local</span>
+          Model: <span className="font-semibold text-slate-800">{modelLabel}</span>
         </div>
       </div>
     </header>

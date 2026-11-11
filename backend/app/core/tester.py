@@ -1,23 +1,23 @@
 import time
-import uuid
 
 import httpx
 
 from app.core.config import settings
 from app.core.errors import DNSError, PolicyError
 from app.core.models import Observation, RequestSpec
-from app.core.security.redactor import redact_headers, redact_text
-from app.core.security.ssrf import check_url
+from app.core.security import redact_headers, redact_text
+from app.core.security import check_url, load_allowed_hosts
+from app.utils.ids import generate_uuid
 
 MAX_BODY_BYTES = 256 * 1024
 
 
 async def execute(spec: RequestSpec) -> Observation:
-    request_id = str(uuid.uuid4())
+    request_id = generate_uuid()
     headers = dict(spec.headers)
 
     try:
-        check_url(str(spec.url), settings.allowed_host_set)
+        check_url(str(spec.url), load_allowed_hosts())
     except PolicyError as exc:
         return Observation(
             request_id=request_id,
@@ -36,11 +36,16 @@ async def execute(spec: RequestSpec) -> Observation:
         "timeout": httpx.Timeout(spec.timeout_s, connect=5.0),
         "follow_redirects": False,
     }
-    if isinstance(spec.body, (dict, list)):
-        kwargs["json"] = spec.body
+    # GET/HEAD are defined to have no body — whatever the UI loaded (a stale
+    # preset body left over from switching presets) must not leak into them.
+    body_for_method = (
+        None if spec.method in ("GET", "HEAD", "OPTIONS") else spec.body
+    )
+    if isinstance(body_for_method, (dict, list)):
+        kwargs["json"] = body_for_method
         headers.setdefault("Content-Type", "application/json")
-    elif isinstance(spec.body, str):
-        kwargs["content"] = spec.body.encode("utf-8")
+    elif isinstance(body_for_method, str):
+        kwargs["content"] = body_for_method.encode("utf-8")
 
     started = time.perf_counter()
     try:

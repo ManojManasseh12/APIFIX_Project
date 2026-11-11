@@ -1,8 +1,25 @@
 import { useRef } from "react";
-import type { ScenarioPreset } from "../types";
+import type { RunSummary, ScenarioPreset } from "../types";
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.round((Date.now() - then) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(then).toLocaleDateString();
+}
 
 export function Sidebar({
   presets,
+  runs,
+  files,
+  importing,
+  bundledChunks,
   selectedPresetId,
   onSelectPreset,
   activeCollection,
@@ -10,6 +27,10 @@ export function Sidebar({
   onImportOpenAPI,
 }: {
   presets: ScenarioPreset[];
+  runs?: RunSummary[];
+  files?: { name: string; size: number }[];
+  importing?: boolean;
+  bundledChunks?: number | null;
   selectedPresetId: string;
   onSelectPreset: (preset: ScenarioPreset) => void;
   activeCollection: string;
@@ -19,7 +40,7 @@ export function Sidebar({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <aside className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+    <aside className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto">
       {/* COLLECTIONS */}
       <div>
         <h2 className="mb-2.5 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
@@ -34,9 +55,42 @@ export function Sidebar({
                 : "rounded-xl p-3 text-slate-700 hover:bg-slate-50"
             }`}
           >
-            <div className="text-xs font-bold text-slate-900">GitHub REST API</div>
-            <div className="mt-0.5 text-[11px] text-slate-500">1,242 indexed endpoints</div>
+            <div className="text-xs font-bold text-slate-900">
+              Bundled API docs
+            </div>
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              {bundledChunks
+                ? `${bundledChunks} chunks indexed (MDN, RFC, specs)`
+                : "Loading knowledge base..."}
+            </div>
           </button>
+          {activeCollection === "github" && (
+            <div className="space-y-1 pl-2">
+              {presets
+                .filter((preset) => preset.collection === "github")
+                .map((preset) => {
+                  const isSelected = preset.id === selectedPresetId;
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => onSelectPreset(preset)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                        isSelected
+                          ? "bg-amber-50 text-slate-900"
+                          : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold">
+                        {preset.method}
+                      </span>
+                      <span className="truncate font-mono text-[11px]">
+                        {preset.path}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
 
           <button
             onClick={() => onSelectCollection("custom")}
@@ -47,47 +101,102 @@ export function Sidebar({
             }`}
           >
             <div className="text-xs font-medium text-slate-800">My own API (OpenAPI file)</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              {files && files.length > 0
+                ? `${files.length} imported file${files.length === 1 ? "" : "s"} indexed`
+                : "Import a spec to index it"}
+            </div>
           </button>
+          {activeCollection === "custom" && files && files.length > 0 && (
+            <div className="mt-1 space-y-1 pl-2">
+              {files.map((file) => (
+                <div
+                  key={file.name}
+                  className="truncate rounded-lg bg-slate-50 px-2.5 py-1.5 font-mono text-[11px] text-slate-600"
+                  title={`${file.name} · ${(file.size / 1024).toFixed(1)} KB`}
+                >
+                  {file.name}
+                </div>
+              ))}
+              {presets
+                .filter((preset) => preset.collection === "custom")
+                .map((preset) => {
+                  const isSelected = preset.id === selectedPresetId;
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => onSelectPreset(preset)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                        isSelected
+                          ? "bg-amber-50 text-slate-900"
+                          : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold">
+                        {preset.method}
+                      </span>
+                      <span className="truncate font-mono text-[11px]">
+                        {preset.path}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* RECENT TESTS */}
+      {/* RECENT TESTS — real run history when available, presets otherwise */}
       <div className="mt-6 flex-1">
         <h2 className="mb-2.5 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
           Recent Tests
         </h2>
         <div className="space-y-1.5">
-          {presets.map((preset) => {
-            const isSelected = preset.id === selectedPresetId;
+          {(runs && runs.length > 0 ? runs : presets).map((item) => {
+            const isRun = "run_id" in item;
+            const status = isRun ? item.status : (item as ScenarioPreset).statusBadge;
+            const method = isRun
+              ? (item as RunSummary).method
+              : (item as ScenarioPreset).method;
+            const path = isRun
+              ? (item as RunSummary).url.replace(/^https?:\/\/[^/]+/, "")
+              : (item as ScenarioPreset).path;
             const badgeTone =
-              preset.statusBadge >= 500
+              (status ?? 0) >= 500
                 ? "text-rose-700"
-                : preset.statusBadge >= 400 && preset.statusBadge !== 422
+                : (status ?? 0) >= 400 && status !== 422
                 ? "text-rose-600"
-                : preset.statusBadge === 422
+                : status === 422
                 ? "text-amber-800"
                 : "text-emerald-600";
 
             return (
-              <button
-                key={preset.id}
-                onClick={() => onSelectPreset(preset)}
-                className={`flex w-full items-center gap-2 text-left transition-all ${
-                  isSelected
-                    ? "rounded-xl border border-amber-200/90 bg-[#fef9c3] p-2.5 shadow-2xs"
-                    : "rounded-xl p-2.5 hover:bg-slate-50"
+              <div
+                key={isRun ? (item as RunSummary).run_id : (item as ScenarioPreset).id}
+                className={`flex items-center gap-2 rounded-xl p-2.5 ${
+                  isRun ? "bg-slate-50/60" : ""
                 }`}
+                title={
+                  isRun
+                    ? `${(item as RunSummary).url} · ${(item as RunSummary).provider ?? ""}`
+                    : undefined
+                }
               >
                 <span className={`text-xs font-bold ${badgeTone}`}>
-                  {preset.statusBadge}
+                  {status ?? "—"}
                 </span>
                 <span className="text-xs font-bold text-slate-900">
-                  {preset.method}
+                  {method}
                 </span>
                 <span className="truncate font-mono text-xs text-slate-600">
-                  {preset.path}
+                  {path}
                 </span>
-              </button>
+                {isRun && (
+                  <span className="ml-auto shrink-0 text-[10px] text-slate-500">
+                    {relativeTime((item as RunSummary).created_at)}
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
@@ -106,9 +215,10 @@ export function Sidebar({
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-center text-xs font-semibold text-slate-700 shadow-2xs transition-colors hover:bg-slate-50 hover:text-slate-900"
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-center text-xs font-semibold text-slate-700 shadow-2xs transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={importing}
         >
-          Import OpenAPI file
+          {importing ? "Uploading & indexing..." : "Import OpenAPI file"}
         </button>
       </div>
     </aside>

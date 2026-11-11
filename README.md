@@ -32,6 +32,11 @@ It is deliberately a vertical slice, not a production service.
 
 ## How it works
 
+<<<<<<< HEAD
+=======
+![The request journey — from user input to a verified fix](docs/assets/request-journey.svg)
+
+>>>>>>> feature/cloud-llm-parity
 ```
             ┌───────────────────────────────────────────────┐
             │            Browser (React + Vite)             │
@@ -58,6 +63,102 @@ One run flows like this:
 3. **Diagnose** — the LLM sees only the observation plus retrieved evidence and streams an answer where every claim cites a chunk ID; the UI shows which provider served it.
 4. **Fix** — a JSON patch is extracted and shown editable; redacted secrets are filled in locally, only for the re-run.
 5. **Verify** — the patched request is re-executed and diffed (status/latency before → after); the Verified pill appears only after a passing re-run. The run is saved to history either way.
+<<<<<<< HEAD
+=======
+
+## Backend — the full process
+
+Everything below is one request's journey through `backend/app`, with the real file and function at each step.
+
+### Stage 1 — Reception and security (`core/security.py`)
+
+| Step | Function | What it does |
+|---|---|---|
+| Reception | `routes/diagnose.py: diagnose()` → `events()` | Opens the SSE stream; every later stage is streamed back as a named event (`observation`, `retrieval`, `token`, `provider`, `done`) that the UI renders live |
+| Approval gate | `require_approval()` | State-changing methods (POST/PUT/PATCH/DELETE) need explicit user consent (`approved: true`) or the stream sends `approval_required` and the UI asks |
+| SSRF guard | `check_url()` | Three layers: scheme must be http(s) → hostname must be on an exact allowlist (env `ALLOWED_HOSTS` merged with app-managed `data/allowed_hosts.txt` on every check — `load_allowed_hosts()`) → every DNS-resolved IP must be public (loopback/private/link-local ranges refused). A blocked host can be trusted from the UI via `POST /api/allowed-hosts` (`routes/policy.py: add_host()`) |
+| Secret redaction | `redact_headers()` / `redact_text()` | Secret-shaped values become `<REDACTED>` before the response body, LLM prompt, history, or patches ever see them |
+
+### Stage 2 — Observation (`core/tester.py`)
+
+- `execute(spec) -> Observation` — the **real** HTTP call through async HTTPX: `trust_env=False` (no silent proxy routing), connect/total timeouts, redirects not followed (status + Location surface instead), error classification into typed errors (`errors.py`: `PolicyError`, `DNSError`, timeout variants).
+- **GET/HEAD/OPTIONS never receive a body** — a stale UI body cannot leak into a bodyless request.
+- The `Observation` (status, selected headers, truncated body, latency) is the single truth object consumed by retrieval, the LLM, history, and the UI.
+
+### Stage 3 — Evidence retrieval (`ai/rag/`)
+
+| Step | File → function | What it does |
+|---|---|---|
+| Query building | `rag/query.py: build_query()` | Status-aware: a 2xx response is queried as "successful response 2xx semantics", ignoring stale failure-phrased questions |
+| Embedding | `rag/embedding.py: embed_prompt()` | Google `gemini-embedding-001`, 768-dim, batched, RETRIEVAL_QUERY task type |
+| Search | `rag/supabase_store.py: retrieve()` (or `rag/vector_store.py` local) | Dense cosine in **pgvector** + PostgreSQL full-text keyword search with an **OR lexeme tsquery**; fallback = local **Chroma + BM25**. Version guard (`rag/retriever.py: detect_version()`) flags `v3` requests against `v2` docs |
+| Fusion | `rag/fusion.py: dense_anchored_rrf()` | `score = Σ weight/(60+rank)`; keyword weight 0.05, top-2 dense anchored in front. Measured on the 50-question eval set: hybrid Recall@5 = 1.000 |
+| Orchestration | `rag/pipeline.py: retrieve_for_api()` | Embed → retrieve → score/filter/k=6; `ensure_seeded()` auto-loads `data/kb_chunks.jsonl` (91 chunks) into an empty store |
+
+### Stage 4 — Diagnosis (`ai/llm.py`, `ai/prompts.py`)
+
+- `prompts.py: build_context()` — the LLM sees **only** the redacted spec, the observation, and the retrieved chunks; it cannot invent what it was not shown.
+- `llm.py: stream_with_fallback()` — `get_providers()` expands `PROVIDER_ORDER=groq,gemini,mistral,nvidia` (comma-separated keys/models rotate). Attempts are **first-serve**: retryable failures (429/5xx/timeout) retry the same provider up to `LLM_MAX_ATTEMPTS_PER_PROVIDER` with exponential backoff + jitter, then rotate; auth errors skip immediately; every provider change streams `provider_fallback` + `provider` SSE events.
+- Token buffer → `prompts.py` citation/patch parsers → the JSON patch block shown as "SUGGESTED FIX".
+
+### Stage 5 — Persistence (`db/runs.py`)
+
+- `save()` — every run to the Supabase Postgres `runs` table (`_save_supabase()`) or local SQLite (`_save_sqlite()`), chosen by `DATABASE_URL`. Best-effort: a history failure **never** breaks the diagnosis stream. `list_runs()` feeds the sidebar.
+
+### Stage 6 — Verification (`core/retest.py`)
+
+- `apply_patch()` swaps patched fields into a fresh spec; `<REDACTED>` values are substituted **only into this outgoing retest call**, never persisted.
+- `diff(before, after)` re-executes via `tester.py` and returns status/latency before → after plus a pass/fail verdict — the "Verified ✓" pill needs a passing re-run.
+
+### The rest of the `/api` surface
+
+| Route | Endpoint(s) | Process |
+|---|---|---|
+| `test.py` | `POST /api/test` | Bare observation without AI |
+| `ask.py` | `POST /api/ask` | Chat Q&A: same gates → same retrieval → `build_ask_context()` → fallback stream with SOURCES chips |
+| `runs.py` | `GET /api/runs` | Recent history for the sidebar |
+| `health.py` | `GET /api/health` | Real stack facts (runner, retrieval backend, database, provider chain) for the header pills |
+| `policy.py` | `GET/POST /api/allowed-hosts` | Validated allowlist self-service (`hostname[:port]` syntax, 422 on garbage) |
+| `upload.py` / `ingest.py` | upload → ingest → delete; `GET /api/kb/stats` | Extension/size-validated uploads → parse (`scripts/parse_openapi.py`) → chunk by tokens (`scripts/chunk_text.py`) → Gemini-embed → pgvector upsert, attributed by source file so deleting a file deletes exactly its chunks |
+| `search.py` | `POST /api/search` | Direct KB search across dense/keyword/hybrid modes |
+
+## Frontend — the full process
+
+React 19 + TypeScript + Vite + Tailwind. All server access flows through `/api/*` proxied to :8000 (`vite.config.ts`).
+
+### State hub (`App.tsx`)
+
+One owner for every top-level state: `spec` (the request), `observation`, streamed diagnosis text, `citations`, `patch`/suggested fix, `providerLabel` + `fallbacks` (who served the answer), `retestResult`, `recentRuns`, uploaded files, KB stats, presets. The run function maps each SSE event type explicitly to states.
+
+### The SSE reader (`lib/sse.ts`)
+
+`streamSSE()` posts JSON, asserts 200, and decodes `event:/data:` frames with typed callbacks; `streamDiagnosis()` / `streamAsk()` wrap it. Event handling:
+
+| SSE event | What the UI does |
+|---|---|
+| `observation` | `ResponseViewer` renders the live status card (status badge, latency, body preview) |
+| `retrieval` | Sources chips appear (KB-xxx citation IDs with links) |
+| `token` | Diagnosis text streams into `DiagnosisViewer` |
+| `provider` / `provider_fallback` | "served by `<provider label>`" pill + failover tooltip |
+| `done` | SUGGESTED FIX block + patch edit; status → done; runs list refreshes |
+| `approval_required` | Consent prompt before state-changing calls |
+| `error` | `blocked_by_policy` → **"Allow host"** button (`ResponseViewer`); `no_providers_configured` → clear message; test still shows the observation |
+
+### Components and their processes
+
+| Component | Process |
+|---|---|
+| `Header.tsx` | Tabs + **status pills** fetched live from `/api/health` (runner, retrieval backend, provider chain) — degrades to neutral labels if the backend is down |
+| `Sidebar.tsx` | Collections (bundled KB chunk count from `/api/kb/stats`, imported files from `/api/files`), **Recent Tests** from `/api/runs` with relative timestamps, OpenAPI import with "Uploading & indexing..." state |
+| `RequestBuilder.tsx` | Method/URL/body/headers/auth/params; auto-strips a pasted `GET https://…` verb; empty question with a **status-aware placeholder** |
+| `ResponseViewer.tsx` | Real observation card; detects SSRF-blocked hosts and offers the validated "Allow host" button; honest footer labels sample vs live data |
+| `DiagnosisViewer.tsx` | Step pills (Tested → Retrieved → Diagnosed → Verify), status-aware heading ("What Went Wrong" for failures, "What Happened" for 2xx), streaming text, SOURCES chips, editable patch, per-`<REDACTED>` secret inputs — **Apply stays disabled while any redaction remains**, then calls `/api/retest` and shows the before/after verdict |
+| `AskPanel.tsx` | Chat for API concepts: same retrieval, streamed answers, source chips, last-4-message context, "New chat" reset |
+
+### Import process (frontend side)
+
+Upload → `/api/upload` → `/api/ingest` → parse the spec JSON → up to **8 endpoint presets** (base URL from `servers[0]`, path params filled with "1") → first preset selected → KB stats refreshed. Imported endpoints then behave like bundled ones, citable in diagnoses and Ask.
+>>>>>>> feature/cloud-llm-parity
 
 ## Retrieval evaluation
 
@@ -134,12 +235,18 @@ pip install -r backend/requirements.txt
 cp .env.example .env
 ```
 
-If `python3 -m venv` fails with `ensurepip is not available`, install `python3-venv` (or `python3.12-venv`). This machine had no `pip` and no `venv` support, so the environment was built with `python3 -m venv --without-pip .venv` followed by `get-pip.py`.
+If `python3 -m venv` fails with `ensurepip is not available`, install the
+`python3-venv` (or `python3.12-venv`) package first.
 
 ### 2. Build the local retrieval index
 
+<<<<<<< HEAD
 Embeddings use Google's `gemini-embedding-001` (768 dimensions), the same model
 family as `cloud_llm`, so `GEMINI_API_KEY` must be set in `.env` (see step 6)
+=======
+Embeddings use Google's `gemini-embedding-001` (768 dimensions), so
+`GEMINI_API_KEY` must be set in `.env` (see step 6)
+>>>>>>> feature/cloud-llm-parity
 before building the index. This works without Supabase:
 
 ```bash
@@ -179,7 +286,11 @@ file.
 
 ### 2b. Batch ingestion
 
+<<<<<<< HEAD
 Ingestion follows the same shape as `cloud_llm`: files are processed in batches
+=======
+Ingestion is bounded and throttled: files are processed in batches
+>>>>>>> feature/cloud-llm-parity
 of `BATCH_FILE_SIZE` (default 10), up to `BATCH_MAX_CONCURRENCY` (default 4)
 files are prepared at once, duplicate files in the same batch are skipped, and
 chunks are embedded in requests capped at `EMBED_MAX_CHUNKS_PER_REQUEST`

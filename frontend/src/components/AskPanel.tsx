@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { streamAsk } from "../lib/sse";
 import type { AskMessage, Citation } from "../types";
-
 const TOPICS = [
   {
     label: "Methods",
@@ -70,14 +69,22 @@ export function AskPanel() {
   const [latestSources, setLatestSources] = useState<Citation[]>([]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Cancel the in-flight stream if the panel unmounts mid-answer.
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, busy]);
 
+  useEffect(() => () => streamAbortRef.current?.abort(), []);
+
   async function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed || busy) return;
+
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
 
     const history = messages
       .filter((message) => message.content.trim())
@@ -98,7 +105,9 @@ export function AskPanel() {
     let retrieved: Citation[] = [];
 
     try {
-      await streamAsk({ question: trimmed, history }, (event, data) => {
+      await streamAsk(
+        { question: trimmed, history },
+        (event, data) => {
         if (event === "retrieval") {
           retrieved = data.chunks ?? [];
           setLatestSources(retrieved);
@@ -160,12 +169,20 @@ export function AskPanel() {
               : data.message ?? data.code
           );
         }
-      });
+        },
+        controller.signal
+      );
     } catch (err) {
+      if ((err as Error)?.name === "AbortError") return; // superseded or unmounted
       setError(String(err));
     } finally {
-      setBusy(false);
-      inputRef.current?.focus();
+      // Only the newest stream owns the busy state; an aborted older
+      // stream must not clear it.
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+        setBusy(false);
+        inputRef.current?.focus();
+      }
     }
   }
 

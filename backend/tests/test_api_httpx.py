@@ -10,9 +10,9 @@ import uvicorn
 from app.ai.rag.vector_store import vector_store
 from app.core.config import settings
 from app.core.models import Observation
-from app.core.security import ssrf
+from app.core import security as ssrf
 from app.main import app
-from app.rag.retriever import RetrievalResult
+from app.ai.rag.retriever import RetrievalResult
 from mock_api.main import app as mock_app
 
 pytestmark = pytest.mark.asyncio
@@ -79,8 +79,13 @@ async def test_health_over_httpx():
     async with api_client() as client:
         response = await client.get("/api/health")
 
+    body = response.json()
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "service": "apifix-ai"}
+    assert body["ok"] is True
+    assert body["service"] == "apifix-ai"
+    assert body["runner"] == "httpx"
+    assert body["retrieval_backend"] in ("local", "supabase")
+    assert isinstance(body["providers"], list)
 
 
 async def test_test_endpoint_observes_mock_and_redacts_headers(mock_api):
@@ -195,8 +200,8 @@ async def test_upload_ingest_search_and_delete_over_httpx(
 
 
 async def test_diagnose_streams_sse_over_httpx(monkeypatch):
-    from app.core.db import runs
-    from app.routes import routes_diagnose
+    from app.db import runs
+    from app.routes import diagnose as routes_diagnose
 
     async def execute(spec):
         return Observation(request_id="test", status=401)
@@ -232,7 +237,7 @@ async def test_diagnose_streams_sse_over_httpx(monkeypatch):
 
 
 async def test_ask_streams_sse_over_httpx(monkeypatch):
-    from app.routes import routes_ask
+    from app.routes import ask as routes_ask
 
     async def retrieve_for_api(question, api_name=None, path=""):
         return RetrievalResult(

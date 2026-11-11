@@ -39,6 +39,9 @@ export function DiagnosisViewer({
   onApplyFix,
   onCopyCurl,
   retesting,
+  observationStatus,
+  providerLabel,
+  fallbacks,
 }: {
   whatWentWrong: string;
   suggestedFix: string;
@@ -49,8 +52,11 @@ export function DiagnosisViewer({
   error: string | null;
   retestResult: RetestResult | null;
   onApplyFix: (patch: Patch) => void;
-  onCopyCurl: () => void;
+  onCopyCurl: () => Promise<boolean> | boolean;
   retesting: boolean;
+  observationStatus?: number | null;
+  providerLabel?: string | null;
+  fallbacks?: string[];
 }) {
   const [copied, setCopied] = useState(false);
   const [patchDraft, setPatchDraft] = useState("");
@@ -75,9 +81,11 @@ export function DiagnosisViewer({
   const sourceCount = allSources.length;
 
   function handleCopy() {
-    onCopyCurl();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    Promise.resolve(onCopyCurl()).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   let parsedPatch: Patch | null = null;
@@ -135,21 +143,40 @@ export function DiagnosisViewer({
 
 
   // Determine stage pill states
-  const isTested = status === "done" || Boolean(whatWentWrong);
-  const isRetrieved = (status === "done" && sourceCount > 0) || Boolean(whatWentWrong);
+  const isTested = status === "done" || status === "running" || Boolean(whatWentWrong);
+  const isRetrieved = status !== "idle" && status !== "error" && sourceCount > 0;
   const isDiagnosed = status === "done" || Boolean(whatWentWrong);
   const isVerified = Boolean(retestResult);
 
   return (
-    <section className="flex flex-col justify-between rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs transition-all">
-      <div>
+    <section className="flex flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs transition-all lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)]">
+      {/* Scrollable content area; the action footer below stays pinned */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-900">AI diagnosis</h2>
-          <span className="text-xs text-slate-400">
-            grounded in {sourceCount || 2} source{sourceCount === 1 ? "" : "s"}
+          <span className="text-xs text-slate-500">
+            {sourceCount > 0
+              ? `grounded in ${sourceCount} source${sourceCount === 1 ? "" : "s"}`
+              : "grounded in your knowledge base"}
           </span>
         </div>
+        {providerLabel && (
+          <div
+            className="mt-1.5 inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-[11px] font-medium text-teal-800"
+            title={
+              fallbacks && fallbacks.length > 0
+                ? `Failovers before this provider: ${fallbacks.join("; ")}`
+                : "Provider label streamed live with this diagnosis"
+            }
+          >
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-teal-500 opacity-75" />
+            </span>
+            served by{" "}
+            <span className="font-mono font-semibold">{providerLabel}</span>
+          </div>
+        )}
 
         {/* Step Pills */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
@@ -197,13 +224,21 @@ export function DiagnosisViewer({
           </div>
         )}
 
-        {/* WHAT WENT WRONG */}
+        {/* WHAT WENT WRONG (or WHAT HAPPENED on a successful response) */}
         <div className="mt-5">
           <h3 className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-            What Went Wrong
+            {observationStatus !== null &&
+            observationStatus !== undefined &&
+            observationStatus >= 200 &&
+            observationStatus < 300
+              ? "What Happened"
+              : "What Went Wrong"}
           </h3>
           <p className="mt-1.5 text-xs leading-relaxed text-slate-800">
-            {whatWentWrong || "Run a test to generate an AI diagnosis with grounded citations."}
+            {status === "running"
+              ? "Diagnosing… grounding the answer in the retrieved sources."
+              : whatWentWrong ||
+                "Run a test to generate an AI diagnosis with grounded citations."}
           </p>
         </div>
 
@@ -319,8 +354,8 @@ export function DiagnosisViewer({
       </div>
       
 
-      {/* ACTION BUTTONS & FOOTER */}
-      <div className="mt-6 pt-2">
+      {/* ACTION BUTTONS & FOOTER (pinned below the scroll area) */}
+      <div className="mt-6 shrink-0 pt-2">
         <div className="flex items-center gap-2">
           <button
             onClick={handleApply}
@@ -338,7 +373,7 @@ export function DiagnosisViewer({
           </button>
         </div>
 
-        <p className="mt-3 text-center text-[11px] text-slate-400">
+        <p className="mt-3 text-center text-[11px] text-slate-500">
           {missingSecrets
             ? "Fill in the redacted header value(s) to enable the retest."
             : unresolvedRedaction

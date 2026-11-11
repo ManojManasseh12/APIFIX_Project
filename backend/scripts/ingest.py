@@ -1,4 +1,4 @@
-import os
+import asyncio
 import sys
 from pathlib import Path
 
@@ -6,57 +6,94 @@ import pandas as pd
 import psycopg
 from dotenv import load_dotenv
 from pgvector.psycopg import register_vector
-from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "backend"))
 load_dotenv(ROOT / ".env")
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
+from app.ai.rag.batch_processor import batch_processor  # noqa: E402
+from app.ai.rag.embedding import embedding  # noqa: E402
+from scripts.chunk_text import token_count  # noqa: E402
+
 PIPELINE = "v1"
 
 
-def token_count(model, text: str) -> int:
-    return len(model.tokenizer.encode(text, add_special_tokens=False))
-
-
 def main(csv_path: str | None = None):
-    path = Path(csv_path) if csv_path else ROOT / "data" / "kb_seed.csv"
-    df = pd.read_csv(path).fillna("")
-    model = SentenceTransformer(MODEL_NAME)
-    embeddings = model.encode(df["chunk_text"].tolist(), normalize_embeddings=True)
+    import json
+    import os
+
+    # data/kb_chunks.jsonl is the canonical knowledge base (same file the
+    # backend auto-seeds from). A CSV path can still be passed explicitly.
+    if csv_path:
+        path = Path(csv_path)
+    else:
+        path = ROOT / "data" / "kb_chunks.jsonl"
+
+    if path.suffix == ".jsonl":
+        with open(path, encoding="utf-8") as f:
+            rows: list[dict] = [json.loads(line) for line in f if line.strip()]
+    else:
+        import pandas as pd
+
+        rows = pd.read_csv(path).fillna("").to_dict("records")
+    texts = [row["chunk_text"] for row in rows]
+
+    print(
+        f"Embedding {len(texts)} chunks with {embedding.model_name} "
+        f"({embedding.dimensions} dims)..."
+    )
+    embeddings = asyncio.run(batch_processor.embed_texts(texts))
 
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         register_vector(conn)
         with conn.cursor() as cur:
-            for row, embedding in zip(df.to_dict("records"), embeddings):
+            for row, vector in zip(rows, embeddings):
                 cur.execute(
                     """
                     insert into kb_chunks (
                       chunk_id, source_type, source_url, source_title, api_name,
                       api_version, method, path, section, page, license, retrieved_at,
                       token_count, chunk_text, embedding, embedding_model,
-                      embedding_dim, embedding_pipeline_version
+                      embedding_dim, embedding_pipeline_version, source_file
                     ) values (
                       %(chunk_id)s, %(source_type)s, %(source_url)s, %(source_title)s,
                       %(api_name)s, %(api_version)s, %(method)s, %(path)s, %(section)s,
                       %(page)s, %(license)s, %(retrieved_at)s, %(token_count)s,
-                      %(chunk_text)s, %(embedding)s, %(embedding_model)s, 384, %(pipeline)s
+                      %(chunk_text)s, %(embedding)s, %(embedding_model)s,
+                      %(embedding_dim)s, %(pipeline)s, %(source_file)s
                     )
                     on conflict (chunk_id) do update set
+                      source_type = excluded.source_type,
+                      source_url = excluded.source_url,
+                      source_title = excluded.source_title,
+                      api_name = excluded.api_name,
+                      api_version = excluded.api_version,
+                      method = excluded.method,
+                      path = excluded.path,
+                      section = excluded.section,
+                      page = excluded.page,
+                      license = excluded.license,
+                      retrieved_at = excluded.retrieved_at,
                       chunk_text = excluded.chunk_text,
                       embedding = excluded.embedding,
                       token_count = excluded.token_count,
-                      embedding_pipeline_version = excluded.embedding_pipeline_version
+                      embedding_model = excluded.embedding_model,
+                      embedding_dim = excluded.embedding_dim,
+                      embedding_pipeline_version = excluded.embedding_pipeline_version,
+                      source_file = excluded.source_file
                     """,
                     {
                         **row,
                         "page": int(row["page"]) if str(row["page"]).isdigit() else None,
-                        "token_count": token_count(model, row["chunk_text"]),
-                        "embedding": embedding,
-                        "embedding_model": MODEL_NAME,
+                        "token_count": token_count(row["chunk_text"]),
+                        "embedding": vector,
+                        "embedding_model": embedding.model_name,
+                        "embedding_dim": len(vector),
                         "pipeline": PIPELINE,
+                        "source_file": row.get("source_file") or path.name,
                     },
                 )
-    print(f"upserted {len(df)} chunks")
+    print(f"upserted {len(rows)} chunks")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ export const PRESETS: ScenarioPreset[] = [
       },
       timeout_s: 5,
       expected_status: 201,
-      question: "Why does this request return 422?",
+      question: "",
       approved: true,
     },
     sampleObservation: {
@@ -50,8 +50,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "0.3 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong:
@@ -103,7 +101,7 @@ export const PRESETS: ScenarioPreset[] = [
       body: null,
       timeout_s: 5,
       expected_status: 200,
-      question: "Why does this request return 401?",
+      question: "",
       approved: false,
     },
     sampleObservation: {
@@ -125,8 +123,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "0.1 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong:
@@ -179,7 +175,7 @@ export const PRESETS: ScenarioPreset[] = [
       body: null,
       timeout_s: 5,
       expected_status: 200,
-      question: "Inspect user details",
+      question: "",
       approved: false,
     },
     sampleObservation: {
@@ -203,8 +199,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "1.2 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong: "Request succeeded with 200 OK. No failure detected.",
@@ -235,7 +229,7 @@ export const PRESETS: ScenarioPreset[] = [
       body: null,
       timeout_s: 5,
       expected_status: 204,
-      question: "Why did DELETE return 404?",
+      question: "",
       approved: true,
     },
     sampleObservation: {
@@ -256,8 +250,6 @@ export const PRESETS: ScenarioPreset[] = [
       error_type: null,
       error_message: null,
       redirect_location: null,
-      size_kb: "0.2 KB",
-      cors_status: "allowed",
     },
     sampleDiagnosis: {
       whatWentWrong:

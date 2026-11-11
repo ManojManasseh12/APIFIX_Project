@@ -1,3 +1,14 @@
+"""Retrieval evaluation from eval_questions.jsonl (the canonical runner).
+
+Loads eval_questions.jsonl (question + expected_chunk_ids, dev/heldout split),
+auto-seeds the Chroma store from data/kb_chunks.jsonl when empty, and prints
+Recall@5 / MRR for dense, keyword, and hybrid retrieval:
+
+    python eval/run_eval.py --split dev|heldout
+
+`retrieval_eval.py` is the legacy variant driven by data/evaluation_cases.csv +
+evidence_map.json against the NumPy/Supabase retrievers; prefer this runner.
+"""
 import argparse
 import asyncio
 import importlib

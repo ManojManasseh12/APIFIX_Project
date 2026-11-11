@@ -1,12 +1,14 @@
 export async function streamSSE(
   url: string,
   body: unknown,
-  onEvent: (event: string, data: any) => void
+  onEvent: (event: string, data: any) => void,
+  signal?: AbortSignal
 ) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok || !response.body) {
@@ -17,36 +19,48 @@ export async function streamSSE(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
 
-    for (const frame of frames) {
-      let event = "message";
-      let data = "";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event:")) event = line.slice(6).trim();
-        if (line.startsWith("data:")) data += line.slice(5).trim();
+      for (const frame of frames) {
+        let event = "message";
+        let data = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        try {
+          onEvent(event, JSON.parse(data));
+        } catch {
+          // A malformed frame must not kill the whole stream; skip it.
+          console.error(`Discarded malformed SSE ${event} frame`, data);
+        }
       }
-      if (data) onEvent(event, JSON.parse(data));
     }
+  } finally {
+    reader.releaseLock();
   }
 }
 
 export async function streamDiagnosis(
   body: unknown,
-  onEvent: (event: string, data: any) => void
+  onEvent: (event: string, data: any) => void,
+  signal?: AbortSignal
 ) {
-  return streamSSE("/api/diagnose", body, onEvent);
+  return streamSSE("/api/diagnose", body, onEvent, signal);
 }
 
 export async function streamAsk(
   body: unknown,
-  onEvent: (event: string, data: any) => void
+  onEvent: (event: string, data: any) => void,
+  signal?: AbortSignal
 ) {
-  return streamSSE("/api/ask", body, onEvent);
+  return streamSSE("/api/ask", body, onEvent, signal);
 }

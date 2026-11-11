@@ -17,25 +17,30 @@ async def check_provider(provider) -> None:
         print(f"{provider.label}: FAILED {type(exc).__name__}: {exc}")
 
 
-def check_embedding() -> None:
-    from sentence_transformers import SentenceTransformer
+async def check_embedding() -> None:
+    from app.ai.rag.embedding import embedding
 
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    vector = model.encode(["hello world"])[0]
-    print("minilm:", len(vector), "dims")
+    try:
+        vector = await embedding.embed_prompt("hello world")
+        print(
+            f"{embedding.model_name}: ok -> {len(vector)} dims"
+        )
+    except Exception as exc:
+        print(f"{embedding.model_name}: FAILED {type(exc).__name__}: {exc}")
 
 
 async def main() -> None:
+    await check_embedding()
+
     providers = get_providers()
     if not providers:
         print(
-            "No providers configured. Set GEMINI_API_KEY, GROQ_API_KEY or "
+            "No LLM providers configured. Set GEMINI_API_KEY, GROQ_API_KEY or "
             "MISTRAL_API_KEY in .env."
         )
         return
     for provider in providers:
         await check_provider(provider)
-    check_embedding()
 
 
 if __name__ == "__main__":

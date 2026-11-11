@@ -6,11 +6,13 @@ export function RequestBuilder({
   onChangeSpec,
   onRunTest,
   busy,
+  observationStatus,
 }: {
   spec: RequestSpec;
   onChangeSpec: (spec: RequestSpec) => void;
   onRunTest: () => void;
   busy: boolean;
+  observationStatus?: number | null;
 }) {
   const [activeTab, setActiveTab] = useState<"body" | "headers" | "auth" | "params">("body");
 
@@ -67,11 +69,17 @@ export function RequestBuilder({
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-      {/* URL BAR ROW */}
+      {/* URL BAR ROW — method + run button; URL gets its own full-width row */}
       <div className="flex items-center gap-2">
         <select
           value={spec.method}
-          onChange={(e) => onChangeSpec({ ...spec, method: e.target.value })}
+          onChange={(e) => {
+            const method = e.target.value;
+            // GET/HEAD requests must not carry a body; clear stale preset bodies
+            const body =
+              method === "GET" || method === "HEAD" ? null : spec.body;
+            onChangeSpec({ ...spec, method, body });
+          }}
           className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
         >
           {["POST", "GET", "PUT", "PATCH", "DELETE", "HEAD"].map((m) => (
@@ -81,22 +89,44 @@ export function RequestBuilder({
           ))}
         </select>
 
-        <input
-          type="text"
-          value={spec.url}
-          onChange={(e) => onChangeSpec({ ...spec, url: e.target.value })}
-          placeholder="https://api.example.com/..."
-          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
-        />
-
         <button
           onClick={onRunTest}
           disabled={busy}
-          className="rounded-xl bg-[#2563eb] px-5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
+          className="ml-auto rounded-xl bg-[#2563eb] px-5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? "Running..." : "Run test"}
         </button>
       </div>
+
+      <input
+        type="text"
+        value={spec.url}
+        onChange={(e) => {
+          // Tolerate a method word pasted with the URL ("GET https://...") —
+          // the dropdown already carries the method; strip it here.
+          const cleaned = e.target.value.replace(
+            /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(?=https?:\/\/)/i,
+            ""
+          );
+          onChangeSpec({ ...spec, url: cleaned });
+        }}
+        placeholder="https://api.example.com/..."
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none"
+      />
+
+      {/* QUESTION FOR THE AI — empty by default; the placeholder suggests a
+          live, status-aware question so baked presets never leak a wrong one */}
+      <input
+        type="text"
+        value={spec.question}
+        onChange={(e) => onChangeSpec({ ...spec, question: e.target.value })}
+        placeholder={
+          observationStatus !== null && observationStatus !== undefined && observationStatus >= 400
+            ? `Question for the AI (optional) — e.g. "Why did this request return ${observationStatus}"?`
+            : "Question for the AI (optional) — the search adapts to the result automatically"
+        }
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700 shadow-2xs focus:border-blue-500 focus:outline-none"
+      />
 
       {/* TABS ROW */}
       <div className="mt-3.5 flex border-b border-slate-200 text-xs">
@@ -118,7 +148,7 @@ export function RequestBuilder({
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
-          Headers ({headerCount || 2})
+          Headers ({headerCount})
         </button>
         <button
           onClick={() => setActiveTab("auth")}

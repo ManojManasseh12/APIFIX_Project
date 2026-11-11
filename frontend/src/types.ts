@@ -18,8 +18,7 @@ export type Observation = {
   error_type: string | null;
   error_message: string | null;
   redirect_location: string | null;
-  size_kb?: string;
-  cors_status?: string;
+  truncated?: boolean;
 };
 
 export type Citation = {
@@ -73,4 +72,13 @@ export type ScenarioPreset = {
     patch: Patch;
     sources: { id: string; label: string; url?: string }[];
   };
+};
+
+export type RunSummary = {
+  run_id: string;
+  created_at: string;
+  method: string;
+  url: string;
+  status: number | null;
+  provider: string | null;
 };

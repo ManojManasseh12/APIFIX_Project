@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.ai.rag.data_loader import DataProcess
 from app.ai.rag.embedding import embedding
-from app.ai.rag.models import Chunk, SearchHit
+from app.core.models import Chunk, SearchHit
 from app.ai.rag.pipeline import retrieve_for_api
 from app.ai.rag.vector_store import VectorStore
 from app.core.config import settings
@@ -160,8 +160,8 @@ def test_insert_is_idempotent_and_normalizes_chroma_metadata():
         metadata={"source": "guide.jsonl", "tags": ["auth", "http"]},
     )
 
-    assert asyncio.run(store.insert([chunk], [[0.1, 0.2]])) == 1
-    assert asyncio.run(store.insert([chunk], [[0.3, 0.4]])) == 1
+    assert asyncio.run(store.insert([chunk], [[0.1] * settings.embed_dim])) == 1
+    assert asyncio.run(store.insert([chunk], [[0.3] * settings.embed_dim])) == 1
     assert collection.count() == 1
     assert collection.rows["stable-id"]["metadata"]["tags"] == "auth, http"
 
@@ -181,13 +181,14 @@ def test_vector_store_uses_installed_chroma_collection_api(tmp_path):
         content="HTTP 401 requires valid authentication credentials",
         metadata={"source": "auth.jsonl", "tags": ["auth"]},
     )
+    vector = [1.0] + [0.0] * (settings.embed_dim - 1)
 
-    assert asyncio.run(store.insert([chunk], [[1.0, 0.0]])) == 1
+    assert asyncio.run(store.insert([chunk], [vector])) == 1
     dense = asyncio.run(
-        store.retrieve([1.0, 0.0], "authentication credentials", mode="dense")
+        store.retrieve(vector, "authentication credentials", mode="dense")
     )
     keyword = asyncio.run(
-        store.retrieve([1.0, 0.0], "authentication credentials", mode="keyword")
+        store.retrieve(vector, "authentication credentials", mode="keyword")
     )
     stats = asyncio.run(store.stats())
 
@@ -246,7 +247,7 @@ def test_upload_rejects_path_traversal_and_bad_extensions(
     client = TestClient(app)
 
     response = client.post(
-        "/upload",
+        "/api/upload",
         files=[("files", (filename, b"not saved"))],
     )
 
@@ -260,7 +261,7 @@ def test_upload_enforces_maximum_size(tmp_path, monkeypatch):
     client = TestClient(app)
 
     response = client.post(
-        "/upload",
+        "/api/upload",
         files=[("files", ("large.txt", b"x" * (1024 * 1024 + 1)))],
     )
 
@@ -276,7 +277,7 @@ def test_upload_list_delete_and_api_aliases(tmp_path, monkeypatch):
         assert source.endswith(".txt")
         return 2
 
-    monkeypatch.setattr(upload_routes.vector_store, "delete_source", delete_source)
+    monkeypatch.setattr(upload_routes.pipeline.store, "delete_source", delete_source)
     client = TestClient(app)
     response = client.post(
         "/api/upload",
@@ -284,7 +285,7 @@ def test_upload_list_delete_and_api_aliases(tmp_path, monkeypatch):
     )
     assert response.status_code == 200
     filename = response.json()["files"][0]["name"]
-    assert client.get("/files").json()["files"][0]["name"] == filename
+    assert client.get("/api/files").json()["files"][0]["name"] == filename
     assert client.delete(f"/api/files/{filename}").json()["chunks_deleted"] == 2
     assert not (tmp_path / filename).exists()
     assert client.get("/api/health").json()["ok"] is True
@@ -332,7 +333,7 @@ def test_ingest_and_search_routes_return_expected_shapes(tmp_path, monkeypatch):
 
     ingest_response = client.post("/api/ingest", json={"files": ["guide.txt"]})
     search_response = client.post(
-        "/search", json={"query": "API request", "mode": "keyword", "k": 3}
+        "/api/search", json={"query": "API request", "mode": "keyword", "k": 3}
     )
     stats_response = client.get("/api/kb/stats")
 
@@ -346,10 +347,10 @@ def test_ingest_and_search_routes_return_expected_shapes(tmp_path, monkeypatch):
 
 
 def test_diagnose_stream_only_accepts_retrieved_citations(monkeypatch):
-    from app.core.db import runs
+    from app.db import runs
     from app.core.models import Observation
-    from app.rag.retriever import RetrievalResult
-    from app.routes import routes_diagnose
+    from app.ai.rag.retriever import RetrievalResult
+    from app.routes import diagnose as routes_diagnose
 
     async def execute(spec):
         return Observation(request_id="test", status=401)

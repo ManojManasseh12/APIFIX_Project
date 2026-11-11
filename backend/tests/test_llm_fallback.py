@@ -10,6 +10,7 @@ from app.ai.llm import (
     stream_with_fallback,
 )
 from app.core.errors import StreamInterrupted
+from app.core.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +29,9 @@ def clean_provider_env(monkeypatch):
         "MISTRAL_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(settings, "llm_max_attempts_per_provider", 3)
+    monkeypatch.setattr(settings, "llm_retry_base_delay_s", 0.0)
+    monkeypatch.setattr(settings, "llm_retry_max_delay_s", 0.0)
 
 
 class FakeProvider:
@@ -36,11 +40,13 @@ class FakeProvider:
         self.label = name
         self.tokens = tokens
         self.error = error
+        self.attempts = 0
 
     def available(self) -> bool:
         return True
 
     async def stream(self, system: str, user: str):
+        self.attempts += 1
         for token in self.tokens:
             yield token
         if self.error is not None:
@@ -93,6 +99,44 @@ def test_falls_back_to_next_model_before_first_token():
         ("gemini:model-b", " world"),
     ]
     assert skipped == [("gemini:model-a", "quota_exceeded", True, False)]
+    assert providers[0].attempts == 3
+
+
+def test_retries_same_model_then_succeeds(monkeypatch):
+    class FlakyProvider:
+        name = "gemini"
+        label = "gemini:model-a"
+
+        def __init__(self):
+            self.attempts = 0
+
+        def available(self) -> bool:
+            return True
+
+        async def stream(self, system: str, user: str):
+            self.attempts += 1
+            if self.attempts < 3:
+                raise QuotaError("429 quota")
+            yield "recovered"
+
+    provider = FlakyProvider()
+    skipped = []
+
+    chunks = collect(
+        [provider],
+        on_skip=lambda *args: skipped.append(args),
+    )
+
+    assert chunks == [("gemini:model-a", "recovered")]
+    assert provider.attempts == 3
+    assert skipped == []
+
+
+def test_does_not_retry_auth_errors():
+    provider = FakeProvider("gemini:model-a", [], AuthError("bad key"))
+    with pytest.raises(Exception):
+        collect([provider])
+    assert provider.attempts == 1
 
 
 def test_restarts_on_next_model_after_partial_output_when_enabled():
@@ -131,6 +175,15 @@ def test_get_providers_expands_models_and_keys(monkeypatch):
     monkeypatch.setenv("PROVIDER_ORDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEYS", "key-1,key-2")
     monkeypatch.setenv("GEMINI_MODEL", "model-a,model-b")
+    for env in (
+        "GROQ_API_KEY",
+        "GROQ_API_KEYS",
+        "MISTRAL_API_KEY",
+        "MISTRAL_API_KEYS",
+        "NVIDIA_API_KEY",
+        "NVIDIA_API_KEYS",
+    ):
+        monkeypatch.delenv(env, raising=False)
 
     labels = [provider.label for provider in get_providers()]
 
@@ -145,7 +198,7 @@ def test_get_providers_expands_models_and_keys(monkeypatch):
 def test_ask_context_keeps_only_last_four_messages():
     from types import SimpleNamespace
 
-    from app.ai.context import build_ask_context
+    from app.ai.prompts import build_ask_context
 
     history = [
         SimpleNamespace(role="user", content=f"message-{index}")
@@ -166,8 +219,15 @@ def test_get_providers_uses_default_model_for_key_only(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "key-1")
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    for env in (
+        "GROQ_API_KEY",
+        "GROQ_API_KEYS",
+        "MISTRAL_API_KEY",
+        "MISTRAL_API_KEYS",
+        "NVIDIA_API_KEY",
+        "NVIDIA_API_KEYS",
+    ):
+        monkeypatch.delenv(env, raising=False)
 
     labels = [provider.label for provider in get_providers()]
 

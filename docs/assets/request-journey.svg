@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1230" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="1230" fill="#f8fafc"/>
+  <text x="500" y="50" text-anchor="middle" font-size="28" font-weight="800" fill="#0f172a">APIFix AI — the request journey</text>
+  <text x="500" y="80" text-anchor="middle" font-size="15" fill="#475569">From your input to a verified fix — every hop below is a real function in the repo</text>
+
+  <!-- 1 -->
+  <rect x="30" y="130" width="940" height="82" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+  <circle cx="62" cy="171" r="17" fill="#64748b"/><text x="62" y="176" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">1</text>
+  <text x="95" y="162" font-size="17" font-weight="700" fill="#1e293b">YOU — the only human input</text>
+  <text x="95" y="186" font-family="ui-monospace, monospace" font-size="13" fill="#475569">RequestBuilder.tsx · Method, URL, body/headers/auth + question (GET /v1/profile)</text>
+  <text x="852" y="162" font-size="12" font-style="italic" text-anchor="end" fill="#94a3b8">presets: or click one</text>
+
+  <!-- 2 -->
+  <rect x="30" y="234" width="940" height="82" rx="12" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+  <circle cx="62" cy="275" r="17" fill="#0284c7"/><text x="62" y="280" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">2</text>
+  <text x="95" y="266" font-size="17" font-weight="700" fill="#1e293b">POST /api/diagnose — the SSE engine starts</text>
+  <text x="95" y="290" font-family="ui-monospace, monospace" font-size="13" fill="#475569">routes/diagnose.py: events() — every later stage streams back as a named event (Vite proxy 5173 → 8000)</text>
+
+  <!-- 3 -->
+  <rect x="30" y="338" width="940" height="82" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <circle cx="62" cy="379" r="17" fill="#d97706"/><text x="62" y="384" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">3</text>
+  <text x="95" y="370" font-size="17" font-weight="700" fill="#1e293b">Security gates</text>
+  <text x="95" y="391" font-family="ui-monospace, monospace" font-size="13" fill="#475569">security.py: require_approval — state-changing methods ask consent first</text>
+  <text x="95" y="411" font-family="ui-monospace, monospace" font-size="13" fill="#475569">check_url — scheme → host allowlist → DNS must resolve to a public IP (SSRF-safe)</text>
+
+  <!-- 4 -->
+  <rect x="30" y="442" width="940" height="82" rx="12" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="62" cy="483" r="17" fill="#2563eb"/><text x="62" y="488" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">4</text>
+  <text x="95" y="474" font-size="17" font-weight="700" fill="#1e293b">The REAL HTTP call</text>
+  <text x="95" y="498" font-family="ui-monospace, monospace" font-size="13" fill="#475569">tester.py: execute() → Observation (status, headers, body, latency) — nothing is simulated</text>
+  <text x="938" y="474" font-size="12" font-weight="700" text-anchor="end" fill="#2563eb">SSE "observation"</text>
+
+  <!-- 5 -->
+  <rect x="30" y="546" width="940" height="82" rx="12" fill="#ccfbf1" stroke="#0d9488" stroke-width="2"/>
+  <circle cx="62" cy="587" r="17" fill="#0d9488"/><text x="62" y="592" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">5</text>
+  <text x="95" y="578" font-size="17" font-weight="700" fill="#1e293b">Status-aware query building</text>
+  <text x="95" y="602" font-family="ui-monospace, monospace" font-size="13" fill="#475569">rag/query.py: build_query() — a 2xx response is queried as "successful response 2xx semantics"</text>
+
+  <!-- 6 -->
+  <rect x="30" y="650" width="940" height="82" rx="12" fill="#ccfbf1" stroke="#0d9488" stroke-width="2"/>
+  <circle cx="62" cy="691" r="17" fill="#0d9488"/><text x="62" y="696" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">6</text>
+  <text x="95" y="682" font-size="17" font-weight="700" fill="#1e293b">Hybrid retrieval + RRF fusion</text>
+  <text x="95" y="706" font-family="ui-monospace, monospace" font-size="13" fill="#475569">Gemini query embedding → dense cosine + keyword tsquery → dense_anchored_rrf → top-6 chunks</text>
+  <text x="938" y="682" font-size="12" font-weight="700" text-anchor="end" fill="#0d9488">SSE "retrieval"</text>
+
+  <!-- 7 -->
+  <rect x="30" y="754" width="940" height="82" rx="12" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <circle cx="62" cy="795" r="17" fill="#7c3aed"/><text x="62" y="800" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">7</text>
+  <text x="95" y="786" font-size="17" font-weight="700" fill="#1e293b">Cited AI diagnosis (streaming)</text>
+  <text x="95" y="810" font-family="ui-monospace, monospace" font-size="13" fill="#475569">prompts.build_context → llm.stream_with_fallback: Groq → Gemini → Mistral → NVIDIA (20 s first-token timeout)</text>
+  <text x="938" y="786" font-size="12" font-weight="700" text-anchor="end" fill="#7c3aed">SSE "token" + provider pill</text>
+
+  <!-- 8 -->
+  <rect x="30" y="858" width="940" height="82" rx="12" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <circle cx="62" cy="899" r="17" fill="#7c3aed"/><text x="62" y="904" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">8</text>
+  <text x="95" y="890" font-size="17" font-weight="700" fill="#1e293b">Patch extracted + run saved</text>
+  <text x="95" y="914" font-family="ui-monospace, monospace" font-size="13" fill="#475569">prompt parsers pull the JSON patch → db/runs.py: save() → Postgres "runs" (best-effort, never raises)</text>
+  <text x="938" y="890" font-size="12" font-weight="700" text-anchor="end" fill="#7c3aed">SSE "done"</text>
+
+  <!-- 9 -->
+  <rect x="30" y="962" width="940" height="82" rx="12" fill="#ffedd5" stroke="#ea580c" stroke-width="2"/>
+  <circle cx="62" cy="1003" r="17" fill="#ea580c"/><text x="62" y="1008" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">9</text>
+  <text x="95" y="994" font-size="17" font-weight="700" fill="#1e293b">Apply fix and re-run (your approval)</text>
+  <text x="95" y="1015" font-family="ui-monospace, monospace" font-size="13" fill="#475569">retest.py: apply_patch + diff → the patched spec is executed again by tester.py</text>
+  <text x="95" y="1035" font-family="ui-monospace, monospace" font-size="13" fill="#475569">&lt;REDACTED&gt; secrets are substituted only into this outgoing call, never persisted</text>
+
+  <!-- 10 -->
+  <rect x="30" y="1066" width="940" height="82" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <circle cx="62" cy="1107" r="17" fill="#16a34a"/><text x="62" y="1112" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">10</text>
+  <text x="95" y="1098" font-size="17" font-weight="700" fill="#1e293b">Verified ✓</text>
+  <text x="95" y="1122" font-family="ui-monospace, monospace" font-size="13" fill="#475569">before/after diff: status 401 → 200, latency — the pill appears only after a passing re-run</text>
+
+  <!-- arrows -->
+  <g stroke="#475569" stroke-width="2.5" fill="none" marker-end="url(#arrow)">
+    <line x1="500" y1="212" x2="500" y2="230"/>
+    <line x1="500" y1="316" x2="500" y2="334"/>
+    <line x1="500" y1="420" x2="500" y2="438"/>
+    <line x1="500" y1="524" x2="500" y2="542"/>
+    <line x1="500" y1="628" x2="500" y2="646"/>
+    <line x1="500" y1="732" x2="500" y2="750"/>
+    <line x1="500" y1="836" x2="500" y2="854"/>
+    <line x1="500" y1="940" x2="500" y2="958"/>
+    <line x1="500" y1="1044" x2="500" y2="1062"/>
+  </g>
+
+  <text x="500" y="1188" text-anchor="middle" font-size="13" fill="#94a3b8" font-style="italic">SSE events (right badges) drive the UI live: step pills, sources chips, served-by provider, Verified verdict.</text>
+</svg>
