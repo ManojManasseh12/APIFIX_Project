@@ -14,6 +14,8 @@ user-controlled URLs; tool endpoints are safe by construction.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -124,3 +126,32 @@ async def convert_currency(amount: float, base: str, target: str) -> dict:
         "converted": round(amount * rate, 2),
         "date": data.get("date"),
     }
+
+
+def format_tool_result(tool_name: str, result: dict) -> str:
+    """A human sentence from a tool result — the no-LLM fallback presentation."""
+    if tool_name == "weather":
+        city = result.get("city", "")
+        country = result.get("country", "")
+        place = f"{city}, {country}" if city and country else (city or country or "Unknown place")
+        conditions = result.get("conditions", "unknown conditions")
+        temp = result.get("temperature_c")
+        feels = result.get("feels_like_c")
+        parts = [f"{place}: {conditions}"]
+        if temp is not None:
+            feels_note = f" (feels like {feels}°C)" if feels is not None else ""
+            parts.append(f"{temp}°C{feels_note}")
+        if result.get("humidity_percent") is not None:
+            parts.append(f"humidity {result['humidity_percent']}%")
+        if result.get("wind_kmh") is not None:
+            parts.append(f"wind {result['wind_kmh']} km/h")
+        return ", ".join(parts) if parts else "No weather data."
+    if tool_name == "currency":
+        date = result.get("date", "")
+        return (
+            f"{result.get('amount')} {result.get('base')} = "
+            f"{result.get('converted')} {result.get('target')} "
+            f"(ECB reference rate 1 {result.get('base')} = {result.get('rate')}"
+            f"{f', {date}' if date else ''})"
+        )
+    return json.dumps(result, ensure_ascii=False)

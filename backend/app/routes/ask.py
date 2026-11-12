@@ -11,7 +11,7 @@ from app.ai.prompts import (
 )
 from app.ai.router import route_question
 from app.ai.rag.pipeline import retrieve_for_api
-from app.ai.tools import ToolError, convert_currency, get_weather
+from app.ai.tools import ToolError, convert_currency, format_tool_result, get_weather
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.routes import sse
@@ -90,14 +90,23 @@ async def ask(payload: AskRequest, request: Request):
                         if await request.is_disconnected():
                             return
                 except AllProvidersFailed as exc:
-                    # The tool already produced the facts; report them raw
-                    # instead of losing the result to an LLM outage.
-                    yield sse("done", {"answer": str(result), "citations": [], "provider": None, "tool": tool_name, "tool_label": label})
+                    # The tool already produced the facts; present them
+                    # readably instead of losing them to an LLM outage.
+                    yield sse(
+                        "done",
+                        {
+                            "answer": format_tool_result(tool_name, result),
+                            "citations": [],
+                            "provider": None,
+                            "tool": tool_name,
+                            "tool_label": label,
+                        },
+                    )
                     return
                 except StreamInterrupted:
                     pass
 
-                answer = "".join(buffer) or str(result)
+                answer = "".join(buffer) or format_tool_result(tool_name, result)
                 yield sse(
                     "done",
                     {

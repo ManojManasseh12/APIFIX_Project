@@ -157,3 +157,20 @@ def test_tool_result_is_json_serializable():
 
     context = build_tool_context("currency", {"amount": 5}, {"converted": 0.06})
     json.loads(context.split("TOOL_RESULT: ", 1)[1].splitlines()[0])
+
+
+def test_format_tool_result_reads_like_a_sentence():
+    from app.ai.tools import format_tool_result
+
+    currency = format_tool_result(
+        "currency",
+        {"base": "INR", "target": "USD", "amount": 5000.0, "rate": 0.010673, "converted": 53.37, "date": "2026-11-11"},
+    )
+    assert currency == "5000.0 INR = 53.37 USD (ECB reference rate 1 INR = 0.010673, 2026-11-11)"
+
+    weather = format_tool_result(
+        "weather",
+        {"city": "Chennai", "country": "India", "temperature_c": 30.9, "feels_like_c": 33.2,
+         "humidity_percent": 45, "wind_kmh": 14.7, "conditions": "Overcast"},
+    )
+    assert weather == "Chennai, India: Overcast, 30.9°C (feels like 33.2°C), humidity 45%, wind 14.7 km/h"

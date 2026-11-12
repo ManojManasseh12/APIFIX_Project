@@ -293,6 +293,11 @@ export function AskPanel() {
                 {message.role === "assistant" && !message.content && busy && (
                   <span className="text-slate-400">Retrieving docs and thinking…</span>
                 )}
+                {message.role === "assistant" && message.tool && (
+                  <span className="mb-1.5 inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                    🔧 answered with the {message.tool} tool
+                  </span>
+                )}
                 <div className="whitespace-pre-wrap">{message.content}</div>
 
                 {message.insufficient && (
