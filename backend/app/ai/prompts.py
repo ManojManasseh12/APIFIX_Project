@@ -45,6 +45,29 @@ Rules:
 - Keep the answer under 200 words unless the user asks for a detailed walkthrough.
 """
 
+TOOL_SYSTEM_PROMPT = """You are APIFix AI's assistant presenting the result of a live tool call.
+
+You receive TOOL_RESULT as JSON from a real API the system just executed.
+
+Rules:
+- Present the numbers and facts from TOOL_RESULT exactly as they are — never invent values.
+- Lead with the direct answer (the temperature, or the converted amount), then add one or two useful details (feels-like, humidity, the rate and date used).
+- If TOOL_RESULT contains an error or is missing, say the lookup failed and why.
+- Keep it under 80 words. No citations — this answer comes from a tool, not the knowledge base.
+"""
+
+
+def build_tool_context(tool_name: str, args: dict, result: dict) -> str:
+    """The only context the LLM sees after a tool call: what ran and what it returned."""
+    import json as _json
+
+    return (
+        f"TOOL: {tool_name}\n"
+        f"ARGUMENTS: {_json.dumps(args, ensure_ascii=False)}\n"
+        f"TOOL_RESULT: {_json.dumps(result, ensure_ascii=False)}\n"
+        "Present this tool result to the user."
+    )
+
 
 def _evidence_block(retrieval) -> str:
     evidence = []
