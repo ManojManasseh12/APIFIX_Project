@@ -1,8 +1,14 @@
 import asyncio
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from app.ai.llm import (
+    GeminiProvider,
+    GroqProvider,
+    MistralProvider,
+    NvidiaProvider,
     error_reason,
     get_providers,
     is_quota_error,
@@ -235,3 +241,52 @@ def test_get_providers_uses_default_model_for_key_only(monkeypatch):
         "gemini:gemini-flash-latest",
         "gemini:gemini-3.5-flash",
     ]
+
+
+def test_provider_adapters_stream_langchain_chunks(monkeypatch):
+    calls = []
+
+    class FakeChatModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def astream(self, messages):
+            calls.append((self.kwargs, messages))
+            yield SimpleNamespace(content="hello")
+            yield SimpleNamespace(content=[{"type": "text", "text": " world"}])
+
+    integrations = (
+        ("langchain_google_genai", "ChatGoogleGenerativeAI", GeminiProvider("g", "gm")),
+        ("langchain_groq", "ChatGroq", GroqProvider("q", "qm")),
+        ("langchain_mistralai", "ChatMistralAI", MistralProvider("m", "mm")),
+        ("langchain_openai", "ChatOpenAI", NvidiaProvider("n", "nm")),
+    )
+    for module_name, class_name, _provider in integrations:
+        module = ModuleType(module_name)
+        setattr(module, class_name, FakeChatModel)
+        monkeypatch.setitem(sys.modules, module_name, module)
+
+    async def collect(provider):
+        return [token async for token in provider.stream("system prompt", "question")]
+
+    async def run():
+        return [await collect(provider) for _, _, provider in integrations]
+
+    tokens = asyncio.run(run())
+
+    assert tokens == [["hello", " world"]] * len(integrations)
+    assert [kwargs for kwargs, _ in calls] == [
+        {"model": "gm", "google_api_key": "g"},
+        {"model": "qm", "api_key": "q"},
+        {"model": "mm", "api_key": "m"},
+        {
+            "model": "nm",
+            "api_key": "n",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+        },
+    ]
+    assert all(
+        [message.type for message in messages] == ["system", "human"]
+        and [message.content for message in messages] == ["system prompt", "question"]
+        for _, messages in calls
+    )

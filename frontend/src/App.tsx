@@ -7,12 +7,14 @@ import { RequestBuilder } from "./components/RequestBuilder";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { DiagnosisViewer } from "./components/DiagnosisViewer";
 import { AskPanel } from "./components/AskPanel";
+import { Dashboard } from "./components/Dashboard";
 import { PRESETS } from "./data/presets";
 import { streamDiagnosis } from "./lib/sse";
+import { apiUrl } from "./lib/api";
 import type { Citation, Observation, Patch, RequestSpec, RetestResult, ScenarioPreset } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("diagnose");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("dashboard");
   const [presets, setPresets] = useState<ScenarioPreset[]>(PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
   const [activeCollection, setActiveCollection] = useState<string>("github");
@@ -60,7 +62,7 @@ export default function App() {
   // Load real run history for the sidebar; refresh after each diagnosis.
   const refreshRuns = async () => {
     try {
-      const response = await fetch("/api/runs");
+      const response = await fetch(apiUrl("/api/runs"));
       if (response.ok) {
         const data = await response.json();
         setRecentRuns(data.runs ?? []);
@@ -173,7 +175,7 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await fetch("/api/retest", {
+      const response = await fetch(apiUrl("/api/retest"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spec, patch: activePatch, before: observation }),
@@ -236,7 +238,7 @@ export default function App() {
 
   const refreshKbStats = async () => {
     try {
-      const response = await fetch("/api/kb/stats");
+      const response = await fetch(apiUrl("/api/kb/stats"));
       if (response.ok) {
         setBundledChunks((await response.json()).chunk_count ?? null);
       }
@@ -250,7 +252,7 @@ export default function App() {
 
   const refreshFiles = async () => {
     try {
-      const response = await fetch("/api/files");
+      const response = await fetch(apiUrl("/api/files"));
       if (response.ok) {
         setUploadedFiles((await response.json()).files ?? []);
       }
@@ -272,7 +274,7 @@ export default function App() {
       // 1. Upload (backend validates extension/size, sanitizes the name)
       const form = new FormData();
       form.append("files", file);
-      const uploadRes = await fetch("/api/upload", {
+      const uploadRes = await fetch(apiUrl("/api/upload"), {
         method: "POST",
         body: form,
       });
@@ -283,7 +285,7 @@ export default function App() {
       const savedName: string = uploadData.files[0].name;
 
       // 2. Ingest into the knowledge base (chunks + embeddings)
-      const ingestRes = await fetch("/api/ingest", {
+      const ingestRes = await fetch(apiUrl("/api/ingest"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: [savedName] }),
@@ -385,7 +387,13 @@ export default function App() {
             {notice}
           </div>
         )}
-        {activeTab === "diagnose" ? (
+        {activeTab === "dashboard" ? (
+          <Dashboard
+            onNavigateToDiagnose={() => setActiveTab("diagnose")}
+            recentRuns={recentRuns}
+            bundledChunks={bundledChunks}
+          />
+        ) : activeTab === "diagnose" ? (
           <div className="mx-auto grid max-w-[1550px] grid-cols-1 items-start gap-5 lg:grid-cols-12">
             {/* Left Column: Collections & Recent Tests (approx 3 cols) */}
             <div className="lg:col-span-3">

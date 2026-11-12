@@ -1,10 +1,12 @@
+import { apiUrl } from "./api";
+
 export async function streamSSE(
   url: string,
   body: unknown,
   onEvent: (event: string, data: any) => void,
   signal?: AbortSignal
 ) {
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

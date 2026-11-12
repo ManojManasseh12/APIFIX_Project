@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import logging
 import os
 import random
@@ -9,6 +8,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Callable, Protocol
 
 from dotenv import load_dotenv
+from langchain_core.language_models import BaseChatModel
 
 from app.core.config import settings
 from app.core.errors import AllProvidersFailed, StreamInterrupted
@@ -63,6 +63,29 @@ class Provider(Protocol):
     async def stream(self, system: str, user: str) -> AsyncIterator[str]: ...
 
 
+async def _stream_chat_model(
+    model: BaseChatModel, system: str, user: str
+) -> AsyncIterator[str]:
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    messages = [SystemMessage(content=system), HumanMessage(content=user)]
+    async for chunk in model.astream(messages):
+        text = getattr(chunk, "text", None)
+        if isinstance(text, str) and text:
+            yield text
+            continue
+
+        content = getattr(chunk, "content", None)
+        if isinstance(content, str) and content:
+            yield content
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    block_text = block.get("text")
+                    if isinstance(block_text, str) and block_text:
+                        yield block_text
+
+
 @dataclass
 class GeminiProvider:
     api_key: str = ""
@@ -77,19 +100,14 @@ class GeminiProvider:
         return bool(self.api_key and self.model)
 
     async def stream(self, system: str, user: str) -> AsyncIterator[str]:
-        from google import genai
+        from langchain_google_genai import ChatGoogleGenerativeAI
 
-        client = genai.Client(api_key=self.api_key)
-        stream = client.aio.models.generate_content_stream(
+        model = ChatGoogleGenerativeAI(
             model=self.model,
-            contents=f"{system}\n\n{user}",
+            google_api_key=self.api_key,
         )
-        if inspect.isawaitable(stream):
-            stream = await stream
-        async for chunk in stream:
-            text = getattr(chunk, "text", None)
-            if text:
-                yield text
+        async for text in _stream_chat_model(model, system, user):
+            yield text
 
 
 @dataclass
@@ -106,21 +124,14 @@ class GroqProvider:
         return bool(self.api_key and self.model)
 
     async def stream(self, system: str, user: str) -> AsyncIterator[str]:
-        from groq import AsyncGroq
+        from langchain_groq import ChatGroq
 
-        client = AsyncGroq(api_key=self.api_key)
-        stream = await client.chat.completions.create(
+        model = ChatGroq(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            stream=True,
+            api_key=self.api_key,
         )
-        async for event in stream:
-            delta = event.choices[0].delta.content
-            if delta:
-                yield delta
+        async for text in _stream_chat_model(model, system, user):
+            yield text
 
 
 @dataclass
@@ -137,23 +148,14 @@ class MistralProvider:
         return bool(self.api_key and self.model)
 
     async def stream(self, system: str, user: str) -> AsyncIterator[str]:
-        try:
-            from mistralai import Mistral
-        except ImportError:  # mistralai >= 3.6 exposes the client here
-            from mistralai.client import Mistral
+        from langchain_mistralai import ChatMistralAI
 
-        client = Mistral(api_key=self.api_key)
-        stream = await client.chat.stream_async(
+        model = ChatMistralAI(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            api_key=self.api_key,
         )
-        async for event in stream:
-            delta = event.data.choices[0].delta.content
-            if delta:
-                yield delta
+        async for text in _stream_chat_model(model, system, user):
+            yield text
 
 
 @dataclass
@@ -172,24 +174,15 @@ class NvidiaProvider:
         return bool(self.api_key and self.model)
 
     async def stream(self, system: str, user: str) -> AsyncIterator[str]:
-        from openai import AsyncOpenAI
+        from langchain_openai import ChatOpenAI
 
-        client = AsyncOpenAI(
+        model = ChatOpenAI(
+            model=self.model,
             api_key=self.api_key,
             base_url="https://integrate.api.nvidia.com/v1",
         )
-        stream = await client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            stream=True,
-        )
-        async for event in stream:
-            delta = event.choices[0].delta.content
-            if delta:
-                yield delta
+        async for text in _stream_chat_model(model, system, user):
+            yield text
 
 
 def _split_env(name: str) -> list[str]:

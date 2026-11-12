@@ -35,6 +35,8 @@ export type AskMessage = {
   citations?: Citation[];
   provider?: string;
   insufficient?: boolean;
+  /** Set when the router answered this message via a live tool (weather/currency). */
+  tool?: string;
 };
 
 export type Patch = {

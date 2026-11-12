@@ -66,6 +66,7 @@ export function AskPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
+  const [toolCall, setToolCall] = useState<string | null>(null);
   const [latestSources, setLatestSources] = useState<Citation[]>([]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -100,6 +101,7 @@ export function AskPanel() {
     setError(null);
     setBusy(true);
     setProvider(null);
+    setToolCall(null);
     setLatestSources([]);
 
     let retrieved: Citation[] = [];
@@ -108,6 +110,14 @@ export function AskPanel() {
       await streamAsk(
         { question: trimmed, history },
         (event, data) => {
+        if (event === "tool") {
+          const label =
+            data.name === "weather"
+              ? `weather · ${data.args?.city || "lookup"}`
+              : `currency · ${data.args?.amount ?? ""} ${data.args?.base ?? ""} → ${data.args?.target ?? ""}`.trim();
+          setToolCall(label || data.name);
+        }
+
         if (event === "retrieval") {
           retrieved = data.chunks ?? [];
           setLatestSources(retrieved);
@@ -155,11 +165,13 @@ export function AskPanel() {
                 citations: retrieved.filter((chunk) => ids.has(chunk.chunk_id)),
                 provider: data.provider ?? undefined,
                 insufficient: Boolean(data.insufficient),
+                tool: data.tool ?? undefined,
               };
             }
             return next;
           });
           setProvider(data.provider ?? null);
+          setToolCall(null);
         }
 
         if (event === "error") {
@@ -204,6 +216,7 @@ export function AskPanel() {
     setInput("");
     setError(null);
     setProvider(null);
+    setToolCall(null);
     setLatestSources([]);
     inputRef.current?.focus();
   }
@@ -231,7 +244,12 @@ export function AskPanel() {
                 {provider}
               </span>
             )}
-            {busy && (
+            {toolCall && (
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700">
+                🔧 {toolCall}
+              </span>
+            )}
+            {busy && !toolCall && (
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">
                 thinking…
               </span>
@@ -274,6 +292,11 @@ export function AskPanel() {
               >
                 {message.role === "assistant" && !message.content && busy && (
                   <span className="text-slate-400">Retrieving docs and thinking…</span>
+                )}
+                {message.role === "assistant" && message.tool && (
+                  <span className="mb-1.5 inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                    🔧 answered with the {message.tool} tool
+                  </span>
                 )}
                 <div className="whitespace-pre-wrap">{message.content}</div>
 

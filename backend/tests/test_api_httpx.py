@@ -88,6 +88,31 @@ async def test_health_over_httpx():
     assert isinstance(body["providers"], list)
 
 
+async def test_run_analytics_endpoint_returns_dashboard_data(monkeypatch):
+    from app.db import runs
+
+    monkeypatch.setattr(
+        runs,
+        "dashboard_stats",
+        lambda: {
+            "total_runs": 1,
+            "failure_count": 1,
+            "daily_runs": [],
+            "status_counts": [],
+            "provider_usage": [],
+            "endpoints": [],
+            "recent_runs": [],
+        },
+    )
+
+    async with api_client() as client:
+        response = await client.get("/api/runs/analytics")
+
+    assert response.status_code == 200
+    assert response.json()["total_runs"] == 1
+    assert response.json()["failure_count"] == 1
+
+
 async def test_test_endpoint_observes_mock_and_redacts_headers(mock_api):
     spec = {
         "method": "GET",

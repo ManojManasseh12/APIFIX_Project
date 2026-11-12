@@ -19,6 +19,7 @@ FastAPI backend, see `vite.config.ts`).
 | `recentRuns` | `GET /api/runs` on mount + after runs | Sidebar Recent Tests |
 | `uploadedFiles` | `GET /api/files`, refreshed after uploads | Sidebar "My own API" |
 | `bundledChunks` | `GET /api/kb/stats`, refreshed after ingest | Sidebar "Bundled API docs" |
+| Dashboard analytics | `GET /api/runs/analytics` on dashboard open/refresh | persisted run totals, status mix, model usage, endpoints and recent diagnoses |
 | `presets` | bundled + imported-spec presets | Sidebar Collections |
 | `error` / `notice` | failures / import success | banner messages |
 | `isMockData` | preset selection vs live results | "Sample data" footer honesty label |
@@ -34,6 +35,13 @@ RequestBuilder's placeholder suggests a question dynamically from the live
 observation status. The backend is status-aware, so empty beats stale.
 
 ## Components
+
+### Dashboard.tsx
+Displays live aggregates from saved diagnosis runs and the indexed knowledge
+chunk count. Empty histories show an empty state; analytics are not populated
+with sample counts or synthetic latency values. The stored run schema does not
+include retest verification or request latency, so the dashboard does not claim
+those as analytics.
 
 ### Header.tsx
 Tabs (Diagnose / Ask API) + **status pills fetched live from

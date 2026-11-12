@@ -375,6 +375,81 @@ python backend/scripts/check_providers.py
 
 If no provider is configured, `/api/diagnose` returns a clear `no_providers_configured` error. `/api/test` still works.
 
+## Deploy frontend and backend
+
+Deploy the FastAPI backend as a Render Web Service and the Vite frontend as a
+Vercel project. Keep API keys and database credentials in Render environment
+variables; the frontend only needs the public backend URL.
+
+### 1. Prepare persistent data storage
+
+For hosted deployments, use Supabase pgvector rather than local Chroma/SQLite,
+which may be lost when a Render service restarts or redeploys:
+
+1. Create a Supabase project and run [`backend/sql/schema.sql`](backend/sql/schema.sql)
+   once in **SQL Editor**.
+2. Copy the **Session pooler** connection string from **Project Settings →
+   Database**. Use it as `DATABASE_URL` in Render; keep it private.
+
+### 2. Deploy the backend to Render
+
+Create a **New Web Service**, connect this GitHub repository, and select the
+branch containing the deployment code. Leave **Root Directory** empty so
+commands run from the repository root. Choose **Python 3** and configure:
+
+| Render setting | Value |
+|---|---|
+| Build Command | `pip install -r backend/requirements.txt` |
+| Start Command | `PYTHONPATH=backend uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/api/health` |
+
+Add these environment variables in Render (enter real secrets in the dashboard,
+not in source control):
+
+```text
+RETRIEVAL_BACKEND=supabase
+DATABASE_URL=<Supabase session-pooler connection string>
+GEMINI_API_KEY=<key used for embeddings>
+GROQ_API_KEY=<optional generation provider key>
+MISTRAL_API_KEY=<optional generation provider key>
+NVIDIA_API_KEY=<optional generation provider key>
+PROVIDER_ORDER=groq,gemini,mistral,nvidia
+SEED_KB=true
+FRONTEND_ORIGIN=https://<your-vercel-production-domain>
+ALLOWED_HOSTS=<comma-separated API hosts you want to test>
+```
+
+At least one LLM provider key is needed for diagnosis and Q&A; `GEMINI_API_KEY`
+is needed to embed the seed knowledge base and uploaded documents. `ALLOWED_HOSTS`
+must list the exact external API hosts the app may send test requests to, without
+`http://` or `https://`. After deployment, check
+`https://<your-render-service>.onrender.com/api/health`.
+
+### 3. Deploy the frontend to Vercel
+
+Import the same GitHub repository as a Vercel project. Set **Root Directory**
+to `frontend` and use the Vite defaults:
+
+| Vercel setting | Value |
+|---|---|
+| Framework Preset | Vite |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+| Environment Variable | `VITE_API_BASE_URL=https://<your-render-service>.onrender.com` |
+
+Set `VITE_API_BASE_URL` for **Production** (and Preview if needed), then deploy
+or redeploy. Add the exact Vercel production URL to Render's `FRONTEND_ORIGIN`
+and redeploy the backend if you change it. Multiple comma-separated frontend
+origins are supported for testing a known Preview URL. Do not put provider keys
+or `DATABASE_URL` in Vercel; `VITE_*` variables are included in browser code.
+
+### 4. Verify the deployment
+
+Open the Vercel site, check the header health pills, and run a test against a
+host listed in `ALLOWED_HOSTS`. `/api/health` should return JSON from Render,
+not a Vercel 404 or a CORS error. The first knowledge-base request may seed the
+bundled documents and call Gemini embeddings.
+
 ## Demo request
 
 In the UI:
