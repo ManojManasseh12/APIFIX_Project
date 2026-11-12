@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiUrl } from "../lib/api";
 
 export type WorkspaceTab = "dashboard" | "diagnose" | "ask";
 
@@ -23,7 +24,7 @@ export function Header({
   // Status pills reflect the real backend, fetched live from /api/health.
   const [health, setHealth] = useState<HealthInfo | null>(null);
   useEffect(() => {
-    fetch("/api/health")
+    fetch(apiUrl("/api/health"))
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => setHealth(data))
       .catch(() => setHealth(null));

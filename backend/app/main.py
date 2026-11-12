@@ -38,9 +38,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="APIFix AI", version="0.1.0", lifespan=lifespan)
 
+frontend_origins = [
+    origin.strip().rstrip("/")
+    for origin in settings.frontend_origin.split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
+    allow_origins=frontend_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],

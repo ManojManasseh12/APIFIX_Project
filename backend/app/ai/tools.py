@@ -21,8 +21,35 @@ import httpx
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 FX_URL = "https://api.frankfurter.dev/v1/latest"
+DNS_URL = "https://dns.google/resolve"
+IP_URL = "https://ipwho.is"
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+# Popular cities -> IANA zones (local computation; no network needed).
+CITY_TZ = {
+    "chennai": "Asia/Kolkata", "mumbai": "Asia/Kolkata", "delhi": "Asia/Kolkata",
+    "new delhi": "Asia/Kolkata", "bangalore": "Asia/Kolkata", "bengaluru": "Asia/Kolkata",
+    "hyderabad": "Asia/Kolkata", "kolkata": "Asia/Kolkata", "india": "Asia/Kolkata",
+    "london": "Europe/London", "paris": "Europe/Paris", "berlin": "Europe/Berlin",
+    "madrid": "Europe/Madrid", "rome": "Europe/Rome", "amsterdam": "Europe/Amsterdam",
+    "zurich": "Europe/Zurich", "moscow": "Europe/Moscow", "istanbul": "Europe/Istanbul",
+    "dubai": "Asia/Dubai", "riyadh": "Asia/Riyadh", "karachi": "Asia/Karachi",
+    "dhaka": "Asia/Dhaka", "singapore": "Asia/Singapore", "hong kong": "Asia/Hong_Kong",
+    "shanghai": "Asia/Shanghai", "beijing": "Asia/Shanghai", "seoul": "Asia/Seoul",
+    "tokyo": "Asia/Tokyo", "bangkok": "Asia/Bangkok", "jakarta": "Asia/Jakarta",
+    "kuala lumpur": "Asia/Kuala_Lumpur", "manila": "Asia/Manila",
+    "sydney": "Australia/Sydney", "auckland": "Pacific/Auckland",
+    "new york": "America/New_York", "boston": "America/New_York",
+    "washington": "America/New_York", "toronto": "America/Toronto",
+    "chicago": "America/Chicago", "dallas": "America/Chicago",
+    "denver": "America/Denver", "phoenix": "America/Phoenix",
+    "los angeles": "America/Los_Angeles", "san francisco": "America/Los_Angeles",
+    "seattle": "America/Los_Angeles", "mexico city": "America/Mexico_City",
+    "sao paulo": "America/Sao_Paulo", "johannesburg": "Africa/Johannesburg",
+    "nairobi": "Africa/Nairobi", "lagos": "Africa/Lagos", "cairo": "Africa/Cairo",
+    "utc": "UTC", "gmt": "UTC",
+}
 
 # WMO weather interpretation codes (467-1), trimmed to the common ones.
 _WEATHER_CODES = {

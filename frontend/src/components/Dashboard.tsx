@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RunSummary } from "../types";
+import { apiUrl } from "../lib/api";
 
 type DashboardStats = {
   total_runs: number;
@@ -181,7 +182,7 @@ export function Dashboard({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/runs/analytics");
+      const response = await fetch(apiUrl("/api/runs/analytics"));
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(data?.detail ?? "Could not load dashboard analytics");

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Observation } from "../types";
+import { apiUrl } from "../lib/api";
 
 function blockedHost(observation: Observation): string | null {
   const message = observation.error_message ?? "";
@@ -93,7 +94,7 @@ export function ResponseViewer({
                 onClick={async () => {
                   setAllowing(true);
                   try {
-                    const response = await fetch("/api/allowed-hosts", {
+                    const response = await fetch(apiUrl("/api/allowed-hosts"), {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ host }),
@@ -129,4 +130,3 @@ export function ResponseViewer({
     </section>
   );
 }
-
