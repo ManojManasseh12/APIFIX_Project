@@ -11,7 +11,10 @@ import json
 import logging
 import sqlite3
 import time
+from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.core.config import settings
 
@@ -174,6 +177,120 @@ def list_runs(limit: int = 8) -> list[dict[str, Any]]:
     except Exception:
         logger.warning("Could not read run history", exc_info=True)
         return []
+
+
+def _created_day(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        created_at = value
+    elif isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc).date()
+    elif isinstance(value, str):
+        try:
+            created_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return created_at.astimezone(timezone.utc).date()
+
+
+def _url_path(url: str | None) -> str:
+    if not url:
+        return "(unknown path)"
+    try:
+        return urlsplit(url).path or "/"
+    except ValueError:
+        return url.split("?", 1)[0]
+
+
+def dashboard_stats() -> dict[str, Any]:
+    """Aggregate persisted diagnosis runs for the live dashboard."""
+    if uses_supabase():
+        import psycopg
+
+        with psycopg.connect(settings.database_url, autocommit=True) as conn:
+            rows = conn.execute(
+                """
+                select created_at, method, url, status, provider
+                from runs
+                order by created_at desc
+                """
+            ).fetchall()
+    else:
+        with _get_sqlite_connection() as conn:
+            rows = conn.execute(
+                """
+                select created_at, method, url, status, provider
+                from runs
+                order by created_at desc
+                """
+            ).fetchall()
+
+    today = datetime.now(timezone.utc).date()
+    first_day = today - timedelta(days=6)
+    daily_counts: Counter[date] = Counter()
+    status_counts: Counter[str] = Counter()
+    provider_counts: Counter[str] = Counter()
+    endpoints: dict[tuple[str, str], dict[str, Any]] = {}
+    failure_count = 0
+
+    for row in rows:
+        created_at, method, url, status, provider = row
+        run_day = _created_day(created_at)
+        if run_day is not None and first_day <= run_day <= today:
+            daily_counts[run_day] += 1
+
+        if isinstance(status, int):
+            status_group = f"{status // 100}xx"
+            status_counts[status_group] += 1
+            failure_count += status >= 400
+        else:
+            status_group = "No response"
+            status_counts[status_group] += 1
+
+        if provider:
+            provider_counts[str(provider)] += 1
+
+        method_name = str(method or "—").upper()
+        path = _url_path(url)
+        key = (method_name, path)
+        endpoint = endpoints.get(key)
+        if endpoint is None:
+            endpoints[key] = {
+                "method": method_name,
+                "path": path,
+                "latest_status": status,
+                "runs": 1,
+            }
+        else:
+            endpoint["runs"] += 1
+
+    return {
+        "total_runs": len(rows),
+        "failure_count": failure_count,
+        "daily_runs": [
+            {
+                "date": (first_day + timedelta(days=offset)).isoformat(),
+                "count": daily_counts[first_day + timedelta(days=offset)],
+            }
+            for offset in range(7)
+        ],
+        "status_counts": [
+            {"status": status, "count": count}
+            for status, count in sorted(status_counts.items())
+        ],
+        "provider_usage": [
+            {"provider": provider, "count": count}
+            for provider, count in provider_counts.most_common()
+        ],
+        "endpoints": sorted(
+            endpoints.values(), key=lambda endpoint: endpoint["runs"], reverse=True
+        )[:5],
+        "recent_runs": list_runs(limit=5),
+    }
 
 
 def save(run: dict[str, Any]) -> None:

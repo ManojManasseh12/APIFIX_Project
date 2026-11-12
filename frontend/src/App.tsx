@@ -7,12 +7,13 @@ import { RequestBuilder } from "./components/RequestBuilder";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { DiagnosisViewer } from "./components/DiagnosisViewer";
 import { AskPanel } from "./components/AskPanel";
+import { Dashboard } from "./components/Dashboard";
 import { PRESETS } from "./data/presets";
 import { streamDiagnosis } from "./lib/sse";
 import type { Citation, Observation, Patch, RequestSpec, RetestResult, ScenarioPreset } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("diagnose");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("dashboard");
   const [presets, setPresets] = useState<ScenarioPreset[]>(PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
   const [activeCollection, setActiveCollection] = useState<string>("github");
@@ -385,7 +386,13 @@ export default function App() {
             {notice}
           </div>
         )}
-        {activeTab === "diagnose" ? (
+        {activeTab === "dashboard" ? (
+          <Dashboard
+            onNavigateToDiagnose={() => setActiveTab("diagnose")}
+            recentRuns={recentRuns}
+            bundledChunks={bundledChunks}
+          />
+        ) : activeTab === "diagnose" ? (
           <div className="mx-auto grid max-w-[1550px] grid-cols-1 items-start gap-5 lg:grid-cols-12">
             {/* Left Column: Collections & Recent Tests (approx 3 cols) */}
             <div className="lg:col-span-3">

@@ -78,7 +78,9 @@ succeeds.
 `PROVIDER_ORDER` into an attempt list (multiple keys/models per family are
 rotated); `stream_with_fallback()` runs attempts first-serve with a
 first-token timeout (default 20 s) and retries on 429/503/timeouts; NVIDIA
-speaks the OpenAI-compatible endpoint via the OpenAI SDK.
+speaks its OpenAI-compatible endpoint through LangChain's `ChatOpenAI`
+integration. All four provider adapters use LangChain chat models and
+`astream()`; the existing outer retry/fallback policy remains provider-neutral.
 **Why:** resilience and pedagogy. No single-vendor outage breaks the demo;
 the header pill shows the real chain. Groq first because Gemini quota is
 consumed by embeddings.
@@ -120,6 +122,7 @@ with SQLite for offline runs.
 | `retest.py` | POST /api/retest | apply patch (redaction-aware) and diff |
 | `ask.py` | POST /api/ask | chat-style Q&A with KB citations |
 | `runs.py` | GET /api/runs | recent history for the sidebar |
+| `runs.py` | GET /api/runs/analytics | persisted run counts, daily totals, statuses, model usage and most-tested endpoints for the dashboard |
 | `upload.py` | POST /api/upload, GET /api/files, DELETE /api/files/{name} | file management |
 | `ingest.py` | POST /api/ingest, GET /api/kb/stats | chunk+embed uploaded docs; live KB stats |
 | `search.py` | POST /api/search | direct KB search (hybrid modes) |

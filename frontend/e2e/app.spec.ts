@@ -64,7 +64,9 @@ async function mockDiagnosis(page: Page, patch: Record<string, unknown>) {
 test("loads the diagnose workspace and switches to Ask API", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "APIFix AI" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Diagnose", exact: true }).click();
   await expect(page.getByRole("heading", { name: "AI diagnosis" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Run test" })).toBeVisible();
 
@@ -72,7 +74,7 @@ test("loads the diagnose workspace and switches to Ask API", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "API assistant" })).toBeVisible();
   await expect(page.getByText("Ask a question in plain English.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Diagnose" }).click();
+  await page.getByRole("button", { name: "Diagnose", exact: true }).click();
   await expect(page.getByRole("heading", { name: "AI diagnosis" })).toBeVisible();
 });
 
@@ -114,6 +116,7 @@ test("diagnose, fill redacted secret, and retest successfully", async ({ page })
   });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "Diagnose", exact: true }).click();
   await page.getByRole("button", { name: "Run test" }).click();
 
   await expect(
@@ -146,6 +149,7 @@ test("a failed retest is reported instead of a fake pass", async ({ page }) => {
   });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "Diagnose", exact: true }).click();
   await page.getByRole("button", { name: "Run test" }).click();
   await expect(page.getByText("The access token has expired. Refresh it and retry.")).toBeVisible();
 
