@@ -471,7 +471,10 @@ a model is rate-limited); live-data questions are answered by real tools
 instead — try `weather in Chennai`, `convert 5000 inr to usd`, `check dns of
 api.github.com`, `where is 8.8.8.8`, `time in Tokyo`, `what is 1730000000 in
 date?`, or paste a JWT with "decode this JWT …". The chat shows a violet
-🔧 chip naming the tool while it runs.
+🔧 chip naming the tool while it runs. Ask history is persisted like diagnosis
+runs (`ask_turns` table, Supabase Postgres or SQLite fallback) — recent
+questions reappear in the "Ask history" panel and can be reopened after a
+reload via `GET /api/ask/history`.
 
 Token usage is deliberately capped: Ask sends only the **last 4 messages** as
 conversation context, retrieves **4 evidence chunks**, and asks the model to keep

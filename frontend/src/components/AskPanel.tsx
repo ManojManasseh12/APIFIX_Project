@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
+import { apiUrl } from "../lib/api";
 import { streamAsk } from "../lib/sse";
-import type { AskMessage, Citation } from "../types";
+import type { AskMessage, AskTurnSummary, Citation } from "../types";
 const TOPICS = [
   {
     label: "Methods",
@@ -60,6 +61,34 @@ const STARTERS = [
   "My webhook handler receives the same event twice. What should I do?",
 ];
 
+// One tap-through example per routed tool — shows the router's tool side.
+const TOOL_EXAMPLES = [
+  { label: "Weather · Chennai", question: "weather in Chennai today" },
+  { label: "5000 INR → USD", question: "convert 5000 inr to usd" },
+  { label: "DNS · api.github.com", question: "check dns of api.github.com" },
+  { label: "IP · 8.8.8.8", question: "where is 8.8.8.8" },
+  { label: "Time · Tokyo", question: "time in Tokyo" },
+  { label: "Epoch · 1730000000", question: "what is 1730000000 in date?" },
+  {
+    label: "Decode · JWT",
+    question:
+      "decode this JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjoxNzMwMDAwMDAwfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+  },
+];
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.round((Date.now() - then) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(then).toLocaleDateString();
+}
+
 export function AskPanel() {
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState("");
@@ -68,16 +97,32 @@ export function AskPanel() {
   const [provider, setProvider] = useState<string | null>(null);
   const [toolCall, setToolCall] = useState<string | null>(null);
   const [latestSources, setLatestSources] = useState<Citation[]>([]);
+  const [askHistory, setAskHistory] = useState<AskTurnSummary[]>([]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // Cancel the in-flight stream if the panel unmounts mid-answer.
   const streamAbortRef = useRef<AbortController | null>(null);
+  // One id per chat session so persisted turns can be grouped later.
+  const sessionRef = useRef<string>(crypto.randomUUID());
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, busy]);
 
   useEffect(() => () => streamAbortRef.current?.abort(), []);
+
+  async function refreshAskHistory() {
+    try {
+      const response = await fetch(apiUrl("/api/ask/history"));
+      if (response.ok) setAskHistory((await response.json()).turns ?? []);
+    } catch {
+      // History panel keeps whatever it had; the backend may be restarting.
+    }
+  }
+
+  useEffect(() => {
+    void refreshAskHistory();
+  }, []);
 
   async function ask(question: string) {
     const trimmed = question.trim();
@@ -108,7 +153,7 @@ export function AskPanel() {
 
     try {
       await streamAsk(
-        { question: trimmed, history },
+        { question: trimmed, history, session_id: sessionRef.current },
         (event, data) => {
         if (event === "tool") {
           // Backend builds the chip text (covers all 7 tools); fall back to the name.
@@ -169,6 +214,7 @@ export function AskPanel() {
           });
           setProvider(data.provider ?? null);
           setToolCall(null);
+          void refreshAskHistory();
         }
 
         if (event === "error") {
@@ -218,6 +264,24 @@ export function AskPanel() {
     inputRef.current?.focus();
   }
 
+  function restoreTurn(turn: AskTurnSummary) {
+    if (busy) return;
+    setMessages([
+      { role: "user", content: turn.question },
+      {
+        role: "assistant",
+        content: turn.answer,
+        citations: turn.citations ?? [],
+        provider: turn.provider ?? undefined,
+        tool: turn.tool ?? undefined,
+      },
+    ]);
+    setLatestSources(turn.citations ?? []);
+    setProvider(turn.provider ?? null);
+    setError(null);
+    setToolCall(null);
+  }
+
   return (
     <div className="mx-auto grid max-w-[1550px] grid-cols-1 gap-5 lg:grid-cols-12">
       <section className="flex min-h-[70vh] flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs lg:col-span-8">
@@ -258,10 +322,30 @@ export function AskPanel() {
           {messages.length === 0 && (
             <div>
               <p className="text-xs leading-relaxed text-slate-600">
-                Ask a question in plain English. Answers use the same grounded documentation
-                index as diagnosis, and every supported claim gets a citable source.
+                Ask a question in plain English. API and documentation questions are
+                answered from the grounded documentation index with citable sources;
+                live-data questions are answered by real tools.
               </p>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Live tools
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {TOOL_EXAMPLES.map((toolExample) => (
+                  <button
+                    key={toolExample.label}
+                    onClick={() => ask(toolExample.question)}
+                    disabled={busy}
+                    title={toolExample.question}
+                    className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 disabled:opacity-50"
+                  >
+                    🔧 {toolExample.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                From the docs
+              </p>
+              <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
                 {STARTERS.map((starter) => (
                   <button
                     key={starter}
@@ -417,6 +501,54 @@ export function AskPanel() {
                     {source.source_title}
                     {source.section ? ` · ${source.section}` : ""}
                   </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900">Ask history</h2>
+            <span className="text-[11px] text-slate-400">{askHistory.length} saved</span>
+          </div>
+          {askHistory.length === 0 ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Answered questions are saved automatically — like diagnosis runs — and
+              can be reopened here after a reload.
+            </p>
+          ) : (
+            <ul className="mt-3 max-h-[320px] space-y-2 overflow-y-auto pr-1">
+              {askHistory.map((turn) => (
+                <li key={turn.turn_id}>
+                  <button
+                    onClick={() => restoreTurn(turn)}
+                    disabled={busy}
+                    title={`Reopen: ${turn.question}`}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-left transition-colors hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="line-clamp-2 text-[11px] font-medium leading-snug text-slate-800">
+                        {turn.question}
+                      </p>
+                      <span className="shrink-0 text-[10px] text-slate-400">
+                        {relativeTime(turn.created_at)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {turn.tool ? (
+                        <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                          🔧 {turn.tool}
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
+                          RAG
+                        </span>
+                      )}
+                      {turn.provider && (
+                        <span className="text-[10px] text-slate-400">{turn.provider}</span>
+                      )}
+                    </div>
+                  </button>
                 </li>
               ))}
             </ul>

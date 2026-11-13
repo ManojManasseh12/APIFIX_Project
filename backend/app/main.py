@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.db import runs
+from app.db import ask_chats, runs
 from app.routes import (
     ask,
     policy,
@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI):
     backend = "Supabase" if runs.uses_supabase() else "SQLite"
     logger.info("Initializing run history (%s backend)...", backend)
     await runs.initialize_async()
+    logger.info("Initializing Ask history (%s backend)...", backend)
+    await ask_chats.initialize_async()
     yield
     logger.info("App shutdown")
 

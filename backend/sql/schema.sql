@@ -66,3 +66,17 @@ create table if not exists runs (
   diagnosis text,
   patch jsonb
 );
+
+-- Ask API chat history (one row per answered question). Also auto-created
+-- at startup; see app/db/ask_chats.py.
+create table if not exists ask_turns (
+  turn_id text primary key,
+  created_at timestamptz not null default now(),
+  session_id text,
+  question text,
+  answer text,
+  provider text,
+  tool text,
+  tool_label text,
+  citations jsonb not null default '[]'::jsonb
+);

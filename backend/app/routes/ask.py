@@ -24,9 +24,17 @@ from app.ai.tools import (
 )
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
+from app.db import ask_chats
 from app.routes import sse
+from app.utils.ids import generate_uuid
 
 router = APIRouter(tags=["assistant"])
+
+
+@router.get("/ask/history")
+async def ask_history(limit: int = 10) -> dict[str, list[dict]]:
+    """Recent Ask turns (newest first) for the Ask history panel."""
+    return {"turns": ask_chats.list_turns(limit=min(limit, 50))}
 
 # Every routed tool: an executor taking the args dict, plus a label builder.
 _TOOL_EXECUTORS = {
@@ -159,10 +167,23 @@ async def ask(payload: AskRequest, request: Request):
                 except AllProvidersFailed as exc:
                     # The tool already produced the facts; present them
                     # readably instead of losing them to an LLM outage.
+                    answer = format_tool_result(tool_name, result)
+                    ask_chats.save(
+                        {
+                            "turn_id": generate_uuid(),
+                            "session_id": payload.session_id,
+                            "question": question,
+                            "answer": answer,
+                            "provider": None,
+                            "tool": tool_name,
+                            "tool_label": label,
+                            "citations": [],
+                        }
+                    )
                     yield sse(
                         "done",
                         {
-                            "answer": format_tool_result(tool_name, result),
+                            "answer": answer,
                             "citations": [],
                             "provider": None,
                             "tool": tool_name,
@@ -174,6 +195,18 @@ async def ask(payload: AskRequest, request: Request):
                     pass
 
                 answer = "".join(buffer) or format_tool_result(tool_name, result)
+                ask_chats.save(
+                    {
+                        "turn_id": generate_uuid(),
+                        "session_id": payload.session_id,
+                        "question": question,
+                        "answer": answer,
+                        "provider": provider_name,
+                        "tool": tool_name,
+                        "tool_label": label,
+                        "citations": [],
+                    }
+                )
                 yield sse(
                     "done",
                     {
@@ -282,6 +315,30 @@ async def ask(payload: AskRequest, request: Request):
             cited = set(CITATION_RE.findall(answer))
             valid_ids = {chunk["chunk_id"] for chunk in retrieval.chunks}
             invalid = cited - valid_ids
+
+            # Persist the turn (same history store as diagnosis runs). The
+            # citations saved are the full chunk metadata so the history
+            # panel can restore the source chips exactly.
+            saved_citations = [
+                {
+                    key: chunk.get(key)
+                    for key in ("chunk_id", "source_title", "source_url", "section", "page")
+                }
+                for chunk in retrieval.chunks
+                if chunk["chunk_id"] in cited
+            ]
+            ask_chats.save(
+                {
+                    "turn_id": generate_uuid(),
+                    "session_id": payload.session_id,
+                    "question": question,
+                    "answer": answer,
+                    "provider": provider_name,
+                    "tool": None,
+                    "tool_label": None,
+                    "citations": saved_citations,
+                }
+            )
 
             yield sse(
                 "done",

@@ -39,6 +39,18 @@ export type AskMessage = {
   tool?: string;
 };
 
+/** One persisted Ask turn (question + answer) from /api/ask/history. */
+export type AskTurnSummary = {
+  turn_id: string;
+  created_at: string;
+  question: string;
+  answer: string;
+  provider: string | null;
+  tool: string | null;
+  tool_label: string | null;
+  citations: Citation[];
+};
+
 export type Patch = {
   set_headers: Record<string, string>;
   remove_headers: string[];

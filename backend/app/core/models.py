@@ -51,6 +51,8 @@ class AskMessage(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[AskMessage] = Field(default_factory=list, max_length=8)
+    # Browser-side chat-session id; lets persisted turns be grouped per chat.
+    session_id: str | None = Field(default=None, max_length=64)
 
 
 class Chunk(BaseModel):
