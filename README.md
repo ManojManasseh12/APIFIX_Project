@@ -404,6 +404,12 @@ commands run from the repository root. Choose **Python 3** and configure:
 | Start Command | `PYTHONPATH=backend uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
 | Health Check Path | `/api/health` |
 
+Memory note: startup imports ~120 MB RSS (chunking loads only the MiniLM
+**tokenizer**, not the torch model), so the service boots and binds its port
+within seconds on the free 512 MB tier. On older copies that imported
+sentence-transformers at startup, Render OOM-killed the process (exit 137)
+before the port opened.
+
 Add these environment variables in Render (enter real secrets in the dashboard,
 not in source control):
 
