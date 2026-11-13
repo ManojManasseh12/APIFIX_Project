@@ -405,10 +405,12 @@ commands run from the repository root. Choose **Python 3** and configure:
 | Health Check Path | `/api/health` |
 
 Memory note: startup imports ~120 MB RSS (chunking loads only the MiniLM
-**tokenizer**, not the torch model), so the service boots and binds its port
-within seconds on the free 512 MB tier. On older copies that imported
-sentence-transformers at startup, Render OOM-killed the process (exit 137)
-before the port opened.
+**tokenizer**, not the torch model), and `chromadb` is not installed at all in
+production (Supabase pgvector never imports it — see
+`backend/requirements-local.txt`), so builds skip torch and the ~10 heavy
+chromadb transitive dependencies. On older copies that installed
+sentence-transformers, Render OOM-killed the process (exit 137) before the
+port opened.
 
 Add these environment variables in Render (enter real secrets in the dashboard,
 not in source control):
@@ -546,7 +548,14 @@ against either one.
    after changing `.env`, then try `/api/search` or the Ask API tab.
 
 If the database is unreachable, the app logs a warning and falls back to
-Chroma. Set `RETRIEVAL_BACKEND=local` to make that explicit. The schema is
+Chroma. Set `RETRIEVAL_BACKEND=local` to make that explicit. Local mode needs
+the optional Chroma dependency, which production images skip to stay small:
+
+```bash
+pip install -r backend/requirements-local.txt
+```
+
+The schema is
 `vector(768)` because `gemini-embedding-001` produces 768-dimensional
 embeddings; if you change `EMBED_MODEL`/`EMBED_DIM`, update the column dimension
 and re-ingest. If `kb_chunks` was created for the old 384-dimensional MiniLM

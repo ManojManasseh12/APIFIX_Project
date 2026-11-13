@@ -36,7 +36,16 @@ class VectorStore:
         if self._collection is None:
             with self._init_lock:
                 if self._collection is None:
-                    import chromadb
+                    try:
+                        import chromadb
+                    except ImportError as exc:
+                        raise RuntimeError(
+                            "Local retrieval mode needs the optional chromadb "
+                            "package, which is not installed on this host. "
+                            "Install it with 'pip install -r "
+                            "backend/requirements-local.txt', or set "
+                            "RETRIEVAL_BACKEND=supabase to use pgvector."
+                        ) from exc
 
                     settings.chroma_dir.mkdir(parents=True, exist_ok=True)
                     client = chromadb.PersistentClient(path=str(settings.chroma_dir))

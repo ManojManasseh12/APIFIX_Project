@@ -1,0 +1,10 @@
+# Extra dependencies for LOCAL retrieval mode only (RETRIEVAL_BACKEND=local).
+#
+# Production deployments run on Supabase pgvector and never import these —
+# chromadb pulls in ~10 heavy transitive dependencies (onnxruntime,
+# kubernetes client, opentelemetry, ...), which bloats small hosts.
+# Install locally when you want the offline Chroma fallback:
+#
+#   pip install -r backend/requirements-local.txt
+
+chromadb==1.5.9

@@ -80,6 +80,17 @@ def test_headings_inside_code_blocks_do_not_split_sections():
     assert sections[1][0] == "Real heading"
 
 
+def test_missing_chromadb_gives_a_clear_error(monkeypatch):
+    """Production (Supabase) hosts ship without chromadb; local mode must
+    explain how to install it instead of crashing with a bare ImportError."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "chromadb", None)  # import -> ImportError
+    store = VectorStore()
+    with pytest.raises(RuntimeError, match="requirements-local"):
+        _ = store.collection
+
+
 def test_yaml_openapi_is_loaded_as_one_chunk_per_operation(tmp_path, monkeypatch):
     from scripts import chunk_text
 
