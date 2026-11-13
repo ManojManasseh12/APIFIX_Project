@@ -11,12 +11,86 @@ from app.ai.prompts import (
 )
 from app.ai.router import route_question
 from app.ai.rag.pipeline import retrieve_for_api
-from app.ai.tools import ToolError, convert_currency, format_tool_result, get_weather
+from app.ai.tools import (
+    ToolError,
+    convert_currency,
+    decode_payload,
+    dns_lookup,
+    format_tool_result,
+    get_time,
+    get_weather,
+    ip_lookup,
+    convert_epoch,
+)
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.routes import sse
 
 router = APIRouter(tags=["assistant"])
+
+# Every routed tool: an executor taking the args dict, plus a label builder.
+_TOOL_EXECUTORS = {
+    "weather": lambda args: get_weather(args.get("city", "")),
+    "currency": lambda args: convert_currency(
+        float(args.get("amount", 1.0)),
+        args.get("base", "INR"),
+        args.get("target", "USD"),
+    ),
+    "time": lambda args: get_time(args.get("city", "")),
+    "epoch": lambda args: convert_epoch(args.get("value", "")),
+    "decode": lambda args: decode_payload(args.get("payload", "")),
+    "dns": lambda args: dns_lookup(args.get("host", "")),
+    "ip": lambda args: ip_lookup(args.get("ip", "")),
+}
+
+
+async def _execute_tool(tool_name: str, args: dict) -> dict:
+    """Run one routed tool; raises ToolError on a clean, explainable failure."""
+    executor = _TOOL_EXECUTORS.get(tool_name)
+    if executor is None:
+        raise ToolError(f"Unknown tool '{tool_name}'.")
+    result = executor(args)
+    if hasattr(result, "__await__"):
+        result = await result
+    return result
+
+
+def _tool_label(tool_name: str, result: dict) -> str:
+    """Short chip text for the UI, built from the tool's own result."""
+    if tool_name == "weather":
+        return result.get("city", tool_name)
+    if tool_name == "currency":
+        return f"{result.get('amount')} {result.get('base')} → {result.get('target')}"
+    if tool_name == "time":
+        return f"{result.get('time_12h')} · {result.get('city')}"
+    if tool_name == "epoch":
+        return f"{result.get('epoch')} → {result.get('date_utc')}"
+    if tool_name == "decode":
+        return f"{result.get('kind')} decoded"
+    if tool_name == "dns":
+        return f"{result.get('host')} → {len(result.get('addresses', []))} A record(s)"
+    if tool_name == "ip":
+        return f"{result.get('ip')} · {result.get('country') or '?'}"
+    return tool_name
+
+
+def _tool_preview_label(tool_name: str, args: dict) -> str:
+    """Chip text emitted before the tool runs, from its arguments alone."""
+    if tool_name == "weather":
+        return f"weather · {args.get('city') or 'lookup'}"
+    if tool_name == "currency":
+        return f"currency · {args.get('amount')} {args.get('base')} → {args.get('target')}"
+    if tool_name == "time":
+        return f"clock · {args.get('city') or 'lookup'}"
+    if tool_name == "epoch":
+        return f"timestamp · {args.get('value') or '?'}"
+    if tool_name == "decode":
+        return "decoder · JWT/base64/URL"
+    if tool_name == "dns":
+        return f"dns · {args.get('host') or 'lookup'}"
+    if tool_name == "ip":
+        return f"ip · {args.get('ip') or '?'}"
+    return tool_name
 
 
 def _require_providers() -> tuple:
@@ -43,27 +117,20 @@ async def ask(payload: AskRequest, request: Request):
                     "tool",
                     {
                         "name": tool_name,
+                        "label": _tool_preview_label(tool_name, decision.args),
                         "args": decision.args,
                         "via": decision.via,
                     },
                 )
                 try:
-                    if tool_name == "weather":
-                        result = await get_weather(decision.args.get("city", ""))
-                        label = result.get("city", tool_name)
-                    else:
-                        result = await convert_currency(
-                            decision.args.get("amount", 1.0),
-                            decision.args.get("base", "INR"),
-                            decision.args.get("target", "USD"),
-                        )
-                        label = f"{result['amount']} {result['base']} → {result['target']}"
+                    result = await _execute_tool(tool_name, decision.args)
                 except ToolError as exc:
                     yield sse(
                         "error",
                         {"code": "tool_failed", "message": str(exc)},
                     )
                     return
+                label = _tool_label(tool_name, result)
 
                 yield sse("tool_result", {"name": tool_name, "result": result})
 

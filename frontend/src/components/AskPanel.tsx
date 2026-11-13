@@ -111,11 +111,8 @@ export function AskPanel() {
         { question: trimmed, history },
         (event, data) => {
         if (event === "tool") {
-          const label =
-            data.name === "weather"
-              ? `weather · ${data.args?.city || "lookup"}`
-              : `currency · ${data.args?.amount ?? ""} ${data.args?.base ?? ""} → ${data.args?.target ?? ""}`.trim();
-          setToolCall(label || data.name);
+          // Backend builds the chip text (covers all 7 tools); fall back to the name.
+          setToolCall(data.label || data.name);
         }
 
         if (event === "retrieval") {

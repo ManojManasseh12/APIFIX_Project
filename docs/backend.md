@@ -120,7 +120,7 @@ with SQLite for offline runs.
 | `test.py` | POST /api/test | bare observation without AI |
 | `diagnose.py` | POST /api/diagnose | the SSE lifecycle: observe → retrieve → stream → patch → save |
 | `retest.py` | POST /api/retest | apply patch (redaction-aware) and diff |
-| `ask.py` | POST /api/ask | chat-style Q&A with KB citations |
+| `ask.py` | POST /api/ask | chat-style Q&A: the router (`app/ai/router.py`) sends API questions to RAG and tool questions to 7 live tools (`app/ai/tools.py`: weather, currency, DNS, IP, JWT/base64/URL decode, unix timestamp, world clock) |
 | `runs.py` | GET /api/runs | recent history for the sidebar |
 | `runs.py` | GET /api/runs/analytics | persisted run counts, daily totals, statuses, model usage and most-tested endpoints for the dashboard |
 | `upload.py` | POST /api/upload, GET /api/files, DELETE /api/files/{name} | file management |

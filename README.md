@@ -26,6 +26,7 @@ It is deliberately a vertical slice, not a production service.
 - Editable patch before retest, including a paste field per redacted token/header value (substituted only in the outgoing retest, never persisted).
 - **Verify loop** — retest re-runs the patched request and shows a before/after diff; the "Verified ✓" pill appears only after a passing re-run.
 - **Ask API tab**: grounded, streaming Q&A for API concepts, doubts, and fixes.
+- **Question router with 7 real tools** — Ask first classifies the question (`app/ai/router.py`: fast rules → NVIDIA LLM for ambiguous → RAG default). API/docs questions go to RAG as always; tool questions hit live, keyless APIs or local computation: weather (Open-Meteo), currency conversion (Frankfurter/ECB), DNS lookup (dns.google), IP geolocation (ipwho.is), JWT/base64/URL decoder, unix-timestamp converter, and a world clock. Tool answers stream with a violet 🔧 chip naming the tool, and the raw tool facts survive even a total LLM outage.
 - **Live health pills** in the header (runner, retrieval backend, database, provider chain) fetched from `GET /api/health` — no hardcoded stack claims in the UI.
 - React UI for request, observation, diagnosis, citations, retest diff, and API Q&A.
 - 50 evaluation request fixtures and an evidence map, with **4 Playwright e2e tests** for the browser app.
@@ -115,7 +116,7 @@ Everything below is one request's journey through `backend/app`, with the real f
 | Route | Endpoint(s) | Process |
 |---|---|---|
 | `test.py` | `POST /api/test` | Bare observation without AI |
-| `ask.py` | `POST /api/ask` | Chat Q&A: same gates → same retrieval → `build_ask_context()` → fallback stream with SOURCES chips |
+| `ask.py` | `POST /api/ask` | Question router first (`app/ai/router.py`): tool intents → real tool call (`app/ai/tools.py`, 7 tools) → `TOOL_SYSTEM_PROMPT` narration with `tool`/`tool_result` SSE events; everything else → same gates → same retrieval → `build_ask_context()` → fallback stream with SOURCES chips |
 | `runs.py` | `GET /api/runs` | Recent history for the sidebar |
 | `health.py` | `GET /api/health` | Real stack facts (runner, retrieval backend, database, provider chain) for the header pills |
 | `policy.py` | `GET/POST /api/allowed-hosts` | Validated allowlist self-service (`hostname[:port]` syntax, 422 on garbage) |
@@ -463,9 +464,14 @@ Expected: observation `401`, cited MDN 401 evidence, a patch that adds `Authoriz
 
 ### Ask API assistant
 
-Use the **Ask API** tab for general API questions. The same retriever provides
-grounded sources and the same provider fallback keeps the answer streaming if a
-model is rate-limited.
+Use the **Ask API** tab for general API questions. A question router decides
+where each question goes: API/docs questions hit the same retriever for
+grounded sources (and the same provider fallback keeps the answer streaming if
+a model is rate-limited); live-data questions are answered by real tools
+instead — try `weather in Chennai`, `convert 5000 inr to usd`, `check dns of
+api.github.com`, `where is 8.8.8.8`, `time in Tokyo`, `what is 1730000000 in
+date?`, or paste a JWT with "decode this JWT …". The chat shows a violet
+🔧 chip naming the tool while it runs.
 
 Token usage is deliberately capped: Ask sends only the **last 4 messages** as
 conversation context, retrieves **4 evidence chunks**, and asks the model to keep
