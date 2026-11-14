@@ -426,7 +426,18 @@ PROVIDER_ORDER=groq,gemini,mistral,nvidia
 SEED_KB=true
 FRONTEND_ORIGIN=https://<your-vercel-production-domain>
 ALLOWED_HOSTS=<comma-separated API hosts you want to test>
+SUPABASE_AUTH_URL=https://<auth-project-ref>.supabase.co
+SUPABASE_AUTH_JWKS_URL=https://<auth-project-ref>.supabase.co/auth/v1/.well-known/jwks.json
 ```
+
+The `SUPABASE_AUTH_*` pair switches authentication on: every route except
+`/api/health` then requires `Authorization: Bearer <token>` issued by the
+separate Supabase Auth project (see `backend/app/core/auth.py`). The anon
+key (`SUPABASE_AUTH_ANON_KEY`) is used by the frontend only — it is safe to
+expose, unlike `DATABASE_URL`. With the pair unset, auth is off and the API
+stays open (local development mode). The data project's `runs` and
+`ask_turns` tables gain a `user_id text` column automatically at startup
+(`backend/sql/schema.sql`), and all history/lists are scoped per user.
 
 At least one LLM provider key is needed for diagnosis and Q&A; `GEMINI_API_KEY`
 is needed to embed the seed knowledge base and uploaded documents. `ALLOWED_HOSTS`

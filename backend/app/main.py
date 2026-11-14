@@ -1,9 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.auth import get_current_user
 from app.core.config import settings
 from app.db import ask_chats, runs
 from app.routes import (
@@ -60,13 +61,18 @@ def landing_page():
     return {"message": "APIFix AI backend", "docs": "/docs"}
 
 
+# Every router except health requires a verified Supabase Auth token when
+# SUPABASE_AUTH_JWKS_URL is configured (see app/core/auth.py); with the env
+# var unset the dependency passes through so local development keeps working.
+protected = [Depends(get_current_user)]
+
 app.include_router(health.router, prefix="/api")
-app.include_router(test.router, prefix="/api")
-app.include_router(diagnose.router, prefix="/api")
-app.include_router(ask.router, prefix="/api")
-app.include_router(retest.router, prefix="/api")
-app.include_router(runs_routes.router, prefix="/api")
-app.include_router(policy.router, prefix="/api")
-app.include_router(upload.router, prefix="/api")
-app.include_router(ingest.router, prefix="/api")
-app.include_router(search.router, prefix="/api")
+app.include_router(test.router, prefix="/api", dependencies=protected)
+app.include_router(diagnose.router, prefix="/api", dependencies=protected)
+app.include_router(ask.router, prefix="/api", dependencies=protected)
+app.include_router(retest.router, prefix="/api", dependencies=protected)
+app.include_router(runs_routes.router, prefix="/api", dependencies=protected)
+app.include_router(policy.router, prefix="/api", dependencies=protected)
+app.include_router(upload.router, prefix="/api", dependencies=protected)
+app.include_router(ingest.router, prefix="/api", dependencies=protected)
+app.include_router(search.router, prefix="/api", dependencies=protected)

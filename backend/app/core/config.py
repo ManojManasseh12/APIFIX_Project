@@ -58,6 +58,13 @@ class Settings(BaseSettings):
 
     database_url: str = ""
 
+    # Supabase Auth (separate auth project). The auth project issues JWTs;
+    # this backend only verifies them against the project's public JWKS.
+    # Empty values keep authentication disabled (local/dev mode).
+    supabase_auth_url: str = ""
+    supabase_auth_anon_key: str = ""
+    supabase_auth_jwks_url: str = ""
+
     # Hybrid retrieval: weighted Reciprocal Rank Fusion. Dense results are the
     # stronger ranker on this corpus, so keyword contributes a small bonus and
     # the top dense_anchor results keep their order.
@@ -71,6 +78,25 @@ class Settings(BaseSettings):
     frontend_origin: str = (
         "http://localhost:5173,https://apifix-project.pages.dev"
     )
+
+    @property
+    def auth_enabled(self) -> bool:
+        """True when the Supabase Auth project is configured.
+
+        Only the JWKS URL is required to *verify* tokens; the anon key is
+        used by the frontend. Template values from .env.example must not
+        switch authentication on accidentally.
+        """
+        url = self.supabase_auth_jwks_url.strip()
+        if not url:
+            return False
+        placeholders = ("<ref>", "<project-ref>", "YOUR-", "[YOUR-")
+        return not any(marker in url for marker in placeholders)
+
+    @property
+    def auth_issuer(self) -> str:
+        """Expected `iss` claim of Supabase Auth access tokens."""
+        return f"{self.supabase_auth_url.rstrip('/')}/auth/v1"
 
     @property
     def database_url_configured(self) -> bool:

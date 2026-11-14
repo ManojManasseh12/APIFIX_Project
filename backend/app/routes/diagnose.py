@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.ai.prompts import build_context
@@ -8,6 +8,7 @@ from app.ai.llm import get_providers, stream_with_fallback
 from app.ai.prompts import CITATION_RE, PATCH_RE, SYSTEM_PROMPT
 from app.ai.rag.pipeline import retrieve_for_api
 from app.ai.rag.query import build_query
+from app.core.auth import get_current_user
 from app.core.errors import AllProvidersFailed, ApprovalRequired, StreamInterrupted
 from app.core.models import RequestSpec
 from app.core.security import require_approval
@@ -20,8 +21,11 @@ router = APIRouter(tags=["diagnosis"])
 
 
 @router.post("/diagnose")
-async def diagnose(spec: RequestSpec, request: Request):
+async def diagnose(
+    spec: RequestSpec, request: Request, user: dict | None = Depends(get_current_user)
+):
     run_id = generate_uuid()
+    user_id = user["user_id"] if user else None
 
     async def events():
         try:
@@ -170,6 +174,7 @@ async def diagnose(spec: RequestSpec, request: Request):
             runs.save(
                 {
                     "run_id": run_id,
+                    "user_id": user_id,
                     "method": spec.method,
                     "url": str(spec.url),
                     "status": observation.status,

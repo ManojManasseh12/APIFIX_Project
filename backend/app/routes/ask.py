@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.ai.prompts import build_ask_context
@@ -22,6 +22,7 @@ from app.ai.tools import (
     ip_lookup,
     convert_epoch,
 )
+from app.core.auth import get_current_user
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.db import ask_chats
@@ -32,9 +33,12 @@ router = APIRouter(tags=["assistant"])
 
 
 @router.get("/ask/history")
-async def ask_history(limit: int = 10) -> dict[str, list[dict]]:
+async def ask_history(
+    limit: int = 10, user: dict | None = Depends(get_current_user)
+) -> dict[str, list[dict]]:
     """Recent Ask turns (newest first) for the Ask history panel."""
-    return {"turns": ask_chats.list_turns(limit=min(limit, 50))}
+    user_id = user["user_id"] if user else None
+    return {"turns": ask_chats.list_turns(limit=min(limit, 50), user_id=user_id)}
 
 # Every routed tool: an executor taking the args dict, plus a label builder.
 _TOOL_EXECUTORS = {
@@ -109,7 +113,11 @@ def _require_providers() -> tuple:
 
 
 @router.post("/ask")
-async def ask(payload: AskRequest, request: Request):
+async def ask(
+    payload: AskRequest, request: Request, user: dict | None = Depends(get_current_user)
+):
+    user_id = user["user_id"] if user else None
+
     async def events():
         try:
             question = payload.question.strip()
@@ -171,6 +179,7 @@ async def ask(payload: AskRequest, request: Request):
                     ask_chats.save(
                         {
                             "turn_id": generate_uuid(),
+                            "user_id": user_id,
                             "session_id": payload.session_id,
                             "question": question,
                             "answer": answer,
@@ -198,6 +207,7 @@ async def ask(payload: AskRequest, request: Request):
                 ask_chats.save(
                     {
                         "turn_id": generate_uuid(),
+                        "user_id": user_id,
                         "session_id": payload.session_id,
                         "question": question,
                         "answer": answer,
@@ -330,6 +340,7 @@ async def ask(payload: AskRequest, request: Request):
             ask_chats.save(
                 {
                     "turn_id": generate_uuid(),
+                    "user_id": user_id,
                     "session_id": payload.session_id,
                     "question": question,
                     "answer": answer,

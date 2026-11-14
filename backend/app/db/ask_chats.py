@@ -21,6 +21,7 @@ _PG_TABLE = """
 create table if not exists ask_turns (
     turn_id text primary key,
     created_at timestamptz not null default now(),
+    user_id text,
     session_id text,
     question text,
     answer text,
@@ -35,6 +36,7 @@ _SQLITE_TABLE = """
 create table if not exists ask_turns (
     turn_id text primary key,
     created_at real,
+    user_id text,
     session_id text,
     question text,
     answer text,
@@ -67,17 +69,39 @@ def _ensure_pg_table() -> None:
 
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         connection.execute(_PG_TABLE)
+        # Tables created before authentication keep working: they gain the
+        # column here, existing rows stay NULL (= legacy/pre-auth data).
+        connection.execute(
+            "alter table ask_turns add column if not exists user_id text"
+        )
     _pg_ready = True
 
 
-def _save_sqlite(turn: dict[str, Any]) -> None:
+def _ensure_sqlite_columns() -> None:
     with _get_sqlite_connection() as connection:
         connection.execute(_SQLITE_TABLE)
+        names = {
+            row[1]
+            for row in connection.execute("pragma table_info(ask_turns)").fetchall()
+        }
+        if "user_id" not in names:
+            connection.execute("alter table ask_turns add column user_id text")
+
+
+def _user_filter(user_id: str | None) -> str:
+    """WHERE fragment scoping turns to one user (NULL = legacy/pre-auth)."""
+    return "where user_id = ? or user_id is null" if user_id else ""
+
+
+def _save_sqlite(turn: dict[str, Any]) -> None:
+    _ensure_sqlite_columns()
+    with _get_sqlite_connection() as connection:
         connection.execute(
-            "insert or replace into ask_turns values (?,?,?,?,?,?,?,?,?)",
+            "insert or replace into ask_turns values (?,?,?,?,?,?,?,?,?,?)",
             (
                 turn["turn_id"],
                 time.time(),
+                turn.get("user_id"),
                 turn.get("session_id"),
                 turn.get("question"),
                 turn.get("answer"),
@@ -97,9 +121,11 @@ def _save_supabase(turn: dict[str, Any]) -> None:
         connection.execute(
             """
             insert into ask_turns (
-                turn_id, session_id, question, answer, provider, tool, tool_label, citations
-            ) values (%s, %s, %s, %s, %s, %s, %s, %s)
+                turn_id, user_id, session_id, question, answer,
+                provider, tool, tool_label, citations
+            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (turn_id) do update set
+                user_id = excluded.user_id,
                 session_id = excluded.session_id,
                 question = excluded.question,
                 answer = excluded.answer,
@@ -110,6 +136,7 @@ def _save_supabase(turn: dict[str, Any]) -> None:
             """,
             (
                 turn["turn_id"],
+                turn.get("user_id"),
                 turn.get("session_id"),
                 turn.get("question"),
                 turn.get("answer"),
@@ -136,31 +163,37 @@ def save(turn: dict[str, Any]) -> None:
         )
 
 
-def list_turns(limit: int = 10) -> list[dict[str, Any]]:
-    """Recent Ask turns (newest first) for the Ask history panel."""
+def list_turns(limit: int = 10, user_id: str | None = None) -> list[dict[str, Any]]:
+    """Recent Ask turns (newest first) for the Ask history panel.
+
+    ``user_id`` scopes the list to one authenticated user; None returns
+    everything (used when authentication is disabled).
+    """
     try:
         if uses_supabase():
             import psycopg
 
+            where = "where user_id = %s or user_id is null" if user_id else ""
             with psycopg.connect(settings.database_url, autocommit=True) as conn:
                 rows = conn.execute(
-                    """
+                    f"""
                     select turn_id, created_at, question, answer, provider, tool, tool_label, citations
-                    from ask_turns order by created_at desc limit %s
+                    from ask_turns {where} order by created_at desc limit %s
                     """,
-                    (limit,),
+                    ((user_id, limit) if user_id else (limit,)),
                 ).fetchall()
             created_ats = [row[1].isoformat() for row in rows]
         else:
             from datetime import datetime, timezone
 
+            _ensure_sqlite_columns()
             with _get_sqlite_connection() as conn:
                 rows = conn.execute(
-                    """
+                    f"""
                     select turn_id, created_at, question, answer, provider, tool, tool_label, citations
-                    from ask_turns order by created_at desc limit ?
+                    from ask_turns {_user_filter(user_id)} order by created_at desc limit ?
                     """,
-                    (limit,),
+                    ((user_id, limit) if user_id else (limit,)),
                 ).fetchall()
             # SQLite keeps seconds-since-epoch; normalise to ISO like Postgres.
             created_ats = [
@@ -193,8 +226,7 @@ def initialize() -> None:
     if uses_supabase():
         _ensure_pg_table()
     else:
-        with _get_sqlite_connection() as connection:
-            connection.execute(_SQLITE_TABLE)
+        _ensure_sqlite_columns()
 
 
 async def initialize_async() -> None:

@@ -94,7 +94,7 @@ async def test_run_analytics_endpoint_returns_dashboard_data(monkeypatch):
     monkeypatch.setattr(
         runs,
         "dashboard_stats",
-        lambda: {
+        lambda user_id=None: {
             "total_runs": 1,
             "failure_count": 1,
             "daily_runs": [],

@@ -24,6 +24,7 @@ _PG_TABLE = """
 create table if not exists runs (
     run_id text primary key,
     created_at timestamptz not null default now(),
+    user_id text,
     method text,
     url text,
     status int,
@@ -39,6 +40,7 @@ _SQLITE_TABLE = """
 create table if not exists runs (
     run_id text primary key,
     created_at real,
+    user_id text,
     method text,
     url text,
     status int,
@@ -71,17 +73,40 @@ def _ensure_pg_table() -> None:
 
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         connection.execute(_PG_TABLE)
+        # Tables created before authentication keep working: they gain the
+        # column here, existing rows stay NULL (= legacy/pre-auth data).
+        connection.execute("alter table runs add column if not exists user_id text")
     _pg_ready = True
 
 
-def _save_sqlite(run: dict[str, Any]) -> None:
+def _ensure_sqlite_columns() -> None:
     with _get_sqlite_connection() as connection:
         connection.execute(_SQLITE_TABLE)
+        names = {
+            row[1] for row in connection.execute("pragma table_info(runs)").fetchall()
+        }
+        if "user_id" not in names:
+            connection.execute("alter table runs add column user_id text")
+
+
+def _user_filter(user_id: str | None) -> str:
+    """WHERE fragment scoping rows to one user.
+
+    Legacy rows saved before authentication have user_id NULL; they belong
+    to the project owner, so a scoped list keeps showing them.
+    """
+    return "where user_id = ? or user_id is null" if user_id else ""
+
+
+def _save_sqlite(run: dict[str, Any]) -> None:
+    _ensure_sqlite_columns()
+    with _get_sqlite_connection() as connection:
         connection.execute(
-            "insert or replace into runs values (?,?,?,?,?,?,?,?,?,?)",
+            "insert or replace into runs values (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 run["run_id"],
                 time.time(),
+                run.get("user_id"),
                 run.get("method"),
                 run.get("url"),
                 run.get("status"),
@@ -102,10 +127,11 @@ def _save_supabase(run: dict[str, Any]) -> None:
         connection.execute(
             """
             insert into runs (
-                run_id, method, url, status, error_type,
+                run_id, user_id, method, url, status, error_type,
                 retrieved_ids, provider, diagnosis, patch
-            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (run_id) do update set
+                user_id = excluded.user_id,
                 method = excluded.method,
                 url = excluded.url,
                 status = excluded.status,
@@ -117,6 +143,7 @@ def _save_supabase(run: dict[str, Any]) -> None:
             """,
             (
                 run["run_id"],
+                run.get("user_id"),
                 run.get("method"),
                 run.get("url"),
                 run.get("status"),
@@ -129,19 +156,24 @@ def _save_supabase(run: dict[str, Any]) -> None:
         )
 
 
-def list_runs(limit: int = 8) -> list[dict[str, Any]]:
-    """Most recent runs (newest first) for the Recent Tests sidebar."""
+def list_runs(limit: int = 8, user_id: str | None = None) -> list[dict[str, Any]]:
+    """Most recent runs (newest first) for the Recent Tests sidebar.
+
+    ``user_id`` scopes the list to one authenticated user; None returns
+    everything (used when authentication is disabled).
+    """
     try:
         if uses_supabase():
             import psycopg
 
+            where = "where user_id = %s or user_id is null" if user_id else ""
             with psycopg.connect(settings.database_url, autocommit=True) as conn:
                 rows = conn.execute(
-                    """
+                    f"""
                     select run_id, created_at, method, url, status, provider
-                    from runs order by created_at desc limit %s
+                    from runs {where} order by created_at desc limit %s
                     """,
-                    (limit,),
+                    ((user_id, limit) if user_id else (limit,)),
                 ).fetchall()
             return [
                 {
@@ -154,14 +186,15 @@ def list_runs(limit: int = 8) -> list[dict[str, Any]]:
                 }
                 for row in rows
             ]
+        _ensure_sqlite_columns()
         with _get_sqlite_connection() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                """
+                f"""
                 select run_id, created_at, method, url, status, provider
-                from runs order by created_at desc limit ?
+                from runs {_user_filter(user_id)} order by created_at desc limit ?
                 """,
-                (limit,),
+                ((user_id, limit) if user_id else (limit,)),
             ).fetchall()
         return [
             {
@@ -206,27 +239,34 @@ def _url_path(url: str | None) -> str:
         return url.split("?", 1)[0]
 
 
-def dashboard_stats() -> dict[str, Any]:
-    """Aggregate persisted diagnosis runs for the live dashboard."""
+def dashboard_stats(user_id: str | None = None) -> dict[str, Any]:
+    """Aggregate persisted diagnosis runs for the live dashboard.
+
+    ``user_id`` scopes every aggregate to one authenticated user.
+    """
     if uses_supabase():
         import psycopg
 
+        where = "where user_id = %s or user_id is null" if user_id else ""
         with psycopg.connect(settings.database_url, autocommit=True) as conn:
             rows = conn.execute(
-                """
+                f"""
                 select created_at, method, url, status, provider
-                from runs
+                from runs {where}
                 order by created_at desc
-                """
+                """,
+                (user_id,) if user_id else (),
             ).fetchall()
     else:
+        _ensure_sqlite_columns()
         with _get_sqlite_connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 select created_at, method, url, status, provider
-                from runs
+                from runs {_user_filter(user_id)}
                 order by created_at desc
-                """
+                """,
+                (user_id,) if user_id else (),
             ).fetchall()
 
     today = datetime.now(timezone.utc).date()
@@ -289,7 +329,7 @@ def dashboard_stats() -> dict[str, Any]:
         "endpoints": sorted(
             endpoints.values(), key=lambda endpoint: endpoint["runs"], reverse=True
         )[:5],
-        "recent_runs": list_runs(limit=5),
+        "recent_runs": list_runs(limit=5, user_id=user_id),
     }
 
 
@@ -314,8 +354,7 @@ def initialize() -> None:
     if uses_supabase():
         _ensure_pg_table()
     else:
-        with _get_sqlite_connection() as connection:
-            connection.execute(_SQLITE_TABLE)
+        _ensure_sqlite_columns()
 
 
 async def initialize_async() -> None:

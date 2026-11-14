@@ -57,6 +57,7 @@ create index if not exists kb_chunks_source_file_idx
 create table if not exists runs (
   run_id text primary key,
   created_at timestamptz not null default now(),
+  user_id text,
   method text,
   url text,
   status int,
@@ -67,11 +68,17 @@ create table if not exists runs (
   patch jsonb
 );
 
+-- Rows saved before authentication have user_id NULL; the backend treats
+-- them as legacy data owned by the project owner.
+alter table runs add column if not exists user_id text;
+create index if not exists runs_user_id_idx on runs (user_id);
+
 -- Ask API chat history (one row per answered question). Also auto-created
 -- at startup; see app/db/ask_chats.py.
 create table if not exists ask_turns (
   turn_id text primary key,
   created_at timestamptz not null default now(),
+  user_id text,
   session_id text,
   question text,
   answer text,
@@ -80,3 +87,6 @@ create table if not exists ask_turns (
   tool_label text,
   citations jsonb not null default '[]'::jsonb
 );
+
+alter table ask_turns add column if not exists user_id text;
+create index if not exists ask_turns_user_id_idx on ask_turns (user_id);
