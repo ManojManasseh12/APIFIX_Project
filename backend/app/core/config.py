@@ -68,7 +68,9 @@ class Settings(BaseSettings):
 
     retrieval_backend: str = "local"
     allowed_hosts: str = "localhost:8001"
-    frontend_origin: str = "http://localhost:5173"
+    frontend_origin: str = (
+        "http://localhost:5173,https://apifix-project.pages.dev"
+    )
 
     @property
     def database_url_configured(self) -> bool:
