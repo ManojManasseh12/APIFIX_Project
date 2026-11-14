@@ -16,6 +16,9 @@ export default defineConfig({
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // E2E runs in no-auth mode: the suite mocks API routes and has no real
+    // auth session. Empty values win over frontend/.env in the Vite build.
+    env: { VITE_SUPABASE_AUTH_URL: "", VITE_SUPABASE_AUTH_ANON_KEY: "" },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

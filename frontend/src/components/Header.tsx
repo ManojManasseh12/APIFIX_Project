@@ -11,9 +11,13 @@ type HealthInfo = {
 export function Header({
   activeTab,
   onTabChange,
+  userEmail = null,
+  onSignOut,
 }: {
   activeTab: WorkspaceTab;
   onTabChange: (tab: WorkspaceTab) => void;
+  userEmail?: string | null;
+  onSignOut?: () => void;
 }) {
   const tabs: { id: WorkspaceTab; label: string; icon: string }[] = [
     { id: "dashboard", label: "Dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -101,9 +105,29 @@ export function Header({
         <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
           Search: <span className="font-semibold text-slate-800">{searchLabel}</span>
         </div>
-        <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs">
+        <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 shadow-2xs xl:inline">
           Model: <span className="font-semibold text-slate-800">{modelLabel}</span>
         </div>
+        {/* Logged-in identity (Supabase Auth). Hidden entirely when auth is off. */}
+        {userEmail && (
+          <div className="flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800 shadow-2xs">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            <span className="max-w-[180px] truncate font-semibold">{userEmail}</span>
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="ml-1 rounded-full px-2 py-0.5 text-[11px] font-semibold text-teal-700 transition hover:bg-teal-100"
+                title="Sign out"
+              >
+                Sign out
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );

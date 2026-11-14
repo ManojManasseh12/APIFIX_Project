@@ -7,14 +7,40 @@ import { RequestBuilder } from "./components/RequestBuilder";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { DiagnosisViewer } from "./components/DiagnosisViewer";
 import { AskPanel } from "./components/AskPanel";
+import { AuthPanel } from "./components/AuthPanel";
 import { Dashboard } from "./components/Dashboard";
 import { PRESETS } from "./data/presets";
+import { authedFetch, apiUrl } from "./lib/api";
+import { authConfigured, supabase, signOut } from "./lib/supabase";
 import { streamDiagnosis } from "./lib/sse";
-import { apiUrl } from "./lib/api";
+import type { Session } from "@supabase/supabase-js";
 import type { Citation, Observation, Patch, RequestSpec, RetestResult, ScenarioPreset } from "./types";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("dashboard");
+
+  // Supabase Auth session (null until loaded; always null when auth is off).
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState<boolean>(!authConfigured);
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: subscription } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => {
+        setSession(nextSession);
+        setAuthReady(true);
+      }
+    );
+    return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  async function handleSignOut() {
+    await signOut();
+    setSession(null);
+  }
   const [presets, setPresets] = useState<ScenarioPreset[]>(PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
   const [activeCollection, setActiveCollection] = useState<string>("github");
@@ -62,7 +88,7 @@ export default function App() {
   // Load real run history for the sidebar; refresh after each diagnosis.
   const refreshRuns = async () => {
     try {
-      const response = await fetch(apiUrl("/api/runs"));
+      const response = await authedFetch("/api/runs");
       if (response.ok) {
         const data = await response.json();
         setRecentRuns(data.runs ?? []);
@@ -175,7 +201,7 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await fetch(apiUrl("/api/retest"), {
+      const response = await authedFetch("/api/retest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spec, patch: activePatch, before: observation }),
@@ -238,7 +264,7 @@ export default function App() {
 
   const refreshKbStats = async () => {
     try {
-      const response = await fetch(apiUrl("/api/kb/stats"));
+      const response = await authedFetch("/api/kb/stats");
       if (response.ok) {
         setBundledChunks((await response.json()).chunk_count ?? null);
       }
@@ -252,7 +278,7 @@ export default function App() {
 
   const refreshFiles = async () => {
     try {
-      const response = await fetch(apiUrl("/api/files"));
+      const response = await authedFetch("/api/files");
       if (response.ok) {
         setUploadedFiles((await response.json()).files ?? []);
       }
@@ -274,7 +300,7 @@ export default function App() {
       // 1. Upload (backend validates extension/size, sanitizes the name)
       const form = new FormData();
       form.append("files", file);
-      const uploadRes = await fetch(apiUrl("/api/upload"), {
+      const uploadRes = await authedFetch("/api/upload", {
         method: "POST",
         body: form,
       });
@@ -285,7 +311,7 @@ export default function App() {
       const savedName: string = uploadData.files[0].name;
 
       // 2. Ingest into the knowledge base (chunks + embeddings)
-      const ingestRes = await fetch(apiUrl("/api/ingest"), {
+      const ingestRes = await authedFetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: [savedName] }),
@@ -376,10 +402,41 @@ export default function App() {
     }
   }
 
+  // Auth gate: with Supabase Auth configured, nothing renders until a
+  // session exists (UI only — the backend independently rejects tokenless
+  // requests). With auth off, authReady is true from the start.
+  if (!authReady) {
+    return (
+      <div className="app-shell flex min-h-screen flex-col text-slate-800 antialiased">
+        <Header activeTab={activeTab} onTabChange={setActiveTab} />
+        <main className="flex-1 p-5" />
+      </div>
+    );
+  }
+
+  if (authConfigured && !session) {
+    return (
+      <div className="app-shell flex min-h-screen flex-col text-slate-800 antialiased">
+        <AuthPanel
+          onAuthed={() => {
+            // onAuthStateChange usually delivers the session first; re-read
+            // it so a signUp that signs in straight away also flips the gate.
+            void supabase?.auth.getSession().then(({ data }) => setSession(data.session));
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell flex min-h-screen flex-col text-slate-800 antialiased">
       {/* Top Header */}
-      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+      <Header
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        userEmail={session?.user?.email ?? null}
+        onSignOut={handleSignOut}
+      />
 
       <main className="flex-1 p-5">
         {notice && (

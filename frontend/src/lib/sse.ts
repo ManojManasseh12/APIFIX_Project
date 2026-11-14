@@ -1,4 +1,5 @@
 import { apiUrl } from "./api";
+import { getAccessToken } from "./supabase";
 
 export async function streamSSE(
   url: string,
@@ -6,14 +7,23 @@ export async function streamSSE(
   onEvent: (event: string, data: any) => void,
   signal?: AbortSignal
 ) {
+  // Attach the Supabase Auth token; the backend verifies it before the
+  // stream starts. An expired session surfaces as a 401, not a stream error.
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const response = await fetch(apiUrl(url), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
     signal,
   });
 
   if (!response.ok || !response.body) {
+    if (response.status === 401) {
+      throw new Error("Your session has expired — please sign in again.");
+    }
     throw new Error(`Stream failed: ${response.status}`);
   }
 

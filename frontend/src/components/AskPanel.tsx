@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { apiUrl } from "../lib/api";
+import { authedFetch } from "../lib/api";
 import { streamAsk } from "../lib/sse";
 import type { AskMessage, AskTurnSummary, Citation } from "../types";
 const TOPICS = [
@@ -113,7 +113,7 @@ export function AskPanel() {
 
   async function refreshAskHistory() {
     try {
-      const response = await fetch(apiUrl("/api/ask/history"));
+      const response = await authedFetch("/api/ask/history");
       if (response.ok) setAskHistory((await response.json()).turns ?? []);
     } catch {
       // History panel keeps whatever it had; the backend may be restarting.
