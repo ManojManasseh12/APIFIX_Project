@@ -26,7 +26,6 @@ from app.core.auth import get_current_user
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.db import ask_chats
-from app.db.prompt_templates import get_override
 from app.routes import sse
 from app.utils.ids import generate_uuid
 
@@ -164,11 +163,10 @@ async def ask(
 
                 buffer: list[str] = []
                 provider_name = None
-                tool_template = get_override("tool")
                 try:
                     async for provider_name, token in stream_with_fallback(
                         providers,
-                        tool_template["template"] if tool_template else TOOL_SYSTEM_PROMPT,
+                        TOOL_SYSTEM_PROMPT,
                         build_tool_context(tool_name, decision.args, result),
                     ):
                         yield sse("token", {"text": token})
@@ -292,10 +290,9 @@ async def ask(
                 skipped.append((name, reason, has_next, output_started))
 
             try:
-                ask_template = get_override("ask")
                 async for provider_name, token in stream_with_fallback(
                     providers,
-                    ask_template["template"] if ask_template else ASK_SYSTEM_PROMPT,
+                    ASK_SYSTEM_PROMPT,
                     context,
                     on_skip=on_skip,
                     restart_after_partial=True,

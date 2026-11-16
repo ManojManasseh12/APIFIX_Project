@@ -1,4 +1,27 @@
+"""Prompts as LangChain PromptTemplates.
+
+Every pipeline has its prompt defined as a code-level LangChain
+``PromptTemplate``: a string with ``{{ variables }}`` that is formatted
+with the real inputs at run time, so the prompt the LLM receives is
+built from the data, not glued together by hand:
+
+* ``DIAGNOSIS_CONTEXT_PROMPT``  — RAG diagnosis (question, observed, evidence)
+* ``ASK_CONTEXT_PROMPT``        — Ask/RAG answers (conversation, question, evidence)
+* ``TOOL_RESULT_PROMPT``        — live tool results (tool, arguments, tool_result)
+
+The rule-sets (SYSTEM_PROMPT, ASK_SYSTEM_PROMPT, TOOL_SYSTEM_PROMPT)
+are the static instruction halves; the context templates are the
+data-driven halves that turn inputs into the final prompt.
+
+Jinja2 format keeps literal JSON braces ({"patch": ...}) intact while
+still allowing {{ variables }}; LangChain renders it inside Jinja2's
+SandboxedEnvironment.
+"""
+
+import json as _json
 import re
+
+from langchain_core.prompts import PromptTemplate
 
 SYSTEM_PROMPT = """You are APIFix AI, an API debugging assistant.
 
@@ -57,15 +80,52 @@ Rules:
 """
 
 
+# ---------------------------------------------------------------------------
+# LangChain PromptTemplates: the data-driven half of every pipeline.
+# Each is formatted with real inputs at run time and produces the prompt
+# the LLM actually receives.
+# ---------------------------------------------------------------------------
+
+DIAGNOSIS_CONTEXT_PROMPT = PromptTemplate.from_template(
+    """USER QUESTION:
+{{ question }}
+
+OBSERVED REQUEST/RESPONSE (redacted):
+{{ observed }}
+
+EVIDENCE:
+{{ evidence }}""",
+    template_format="jinja2",
+)
+
+ASK_CONTEXT_PROMPT = PromptTemplate.from_template(
+    """CONVERSATION:
+{{ conversation }}
+
+CURRENT QUESTION:
+{{ question }}
+
+EVIDENCE:
+{{ evidence }}""",
+    template_format="jinja2",
+)
+
+TOOL_RESULT_PROMPT = PromptTemplate.from_template(
+    """TOOL: {{ tool }}
+ARGUMENTS: {{ arguments }}
+TOOL_RESULT: {{ tool_result }}
+
+Present this tool result to the user.""",
+    template_format="jinja2",
+)
+
+
 def build_tool_context(tool_name: str, args: dict, result: dict) -> str:
     """The only context the LLM sees after a tool call: what ran and what it returned."""
-    import json as _json
-
-    return (
-        f"TOOL: {tool_name}\n"
-        f"ARGUMENTS: {_json.dumps(args, ensure_ascii=False)}\n"
-        f"TOOL_RESULT: {_json.dumps(result, ensure_ascii=False)}\n"
-        "Present this tool result to the user."
+    return TOOL_RESULT_PROMPT.format(
+        tool=tool_name,
+        arguments=_json.dumps(args, ensure_ascii=False),
+        tool_result=_json.dumps(result, ensure_ascii=False),
     )
 
 
@@ -84,6 +144,7 @@ def _evidence_block(retrieval) -> str:
 
 
 def build_context(spec, obs, retrieval) -> str:
+    """RAG diagnosis prompt: the LangChain template filled from the run's inputs."""
     observed = {
         "method": spec.method,
         "url": str(spec.url),
@@ -94,23 +155,27 @@ def build_context(spec, obs, retrieval) -> str:
         "response_body_preview": obs.body_preview[:1500],
         "redirect_location": obs.redirect_location,
     }
-    return (
-        f"USER QUESTION:\n{spec.question or 'Why did this request fail?'}\n\n"
-        f"OBSERVED REQUEST/RESPONSE (redacted):\n{observed}\n\n"
-        "EVIDENCE:\n" + _evidence_block(retrieval)
+    return DIAGNOSIS_CONTEXT_PROMPT.format(
+        question=spec.question or "Why did this request fail?",
+        observed=observed,
+        evidence=_evidence_block(retrieval),
     )
 
 
-def build_ask_context(question: str, history, retrieval) -> str:
+def conversation_block(history) -> str:
+    """The last few conversation turns, as the LLM sees them."""
     turns = []
     for message in list(history)[-4:]:
         role = getattr(message, "role", "user")
         content = getattr(message, "content", "")[:1500]
         turns.append(f"{role.upper()}: {content}")
-    conversation = "\n".join(turns) if turns else "(new conversation)"
+    return "\n".join(turns) if turns else "(new conversation)"
 
-    return (
-        f"CONVERSATION:\n{conversation}\n\n"
-        f"CURRENT QUESTION:\n{question}\n\n"
-        "EVIDENCE:\n" + _evidence_block(retrieval)
+
+def build_ask_context(question: str, history, retrieval) -> str:
+    """Ask/RAG prompt: the LangChain template filled from the conversation inputs."""
+    return ASK_CONTEXT_PROMPT.format(
+        conversation=conversation_block(history),
+        question=question,
+        evidence=_evidence_block(retrieval),
     )

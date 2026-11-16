@@ -11,7 +11,6 @@ import { AuthPanel } from "./components/AuthPanel";
 import { Dashboard } from "./components/Dashboard";
 import { EventTimeline } from "./components/EventTimeline";
 import type { TimelineEntry } from "./components/EventTimeline";
-import { PromptTemplates } from "./components/PromptTemplates";
 import { PRESETS } from "./data/presets";
 import { authedFetch, apiUrl } from "./lib/api";
 import { authConfigured, supabase, signOut } from "./lib/supabase";
@@ -545,8 +544,6 @@ export default function App() {
               />
             </div>
           </div>
-        ) : activeTab === "prompts" ? (
-          <PromptTemplates />
         ) : (
           <AskPanel />
         )}
