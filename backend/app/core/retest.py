@@ -4,6 +4,13 @@ from app.core.models import Observation, Patch, RequestSpec
 
 
 def apply_patch(spec: RequestSpec, patch: Patch) -> RequestSpec:
+    """Apply the suggested fix to a copy of the request spec.
+
+    Approval is deliberately NOT granted here: a retest of a
+    state-changing method must carry the same explicit consent
+    (``spec.approved``) that /api/test required. The frontend only
+    reaches /api/retest with a spec the user already consented to run.
+    """
     new = deepcopy(spec)
     for key, value in patch.set_headers.items():
         new.headers[key] = value
@@ -13,7 +20,6 @@ def apply_patch(spec: RequestSpec, patch: Patch) -> RequestSpec:
         new.body = patch.set_body
     if patch.set_url:
         new.url = patch.set_url
-    new.approved = True
     return new
 
 

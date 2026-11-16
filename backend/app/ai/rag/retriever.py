@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -96,6 +97,10 @@ class LocalRetriever:
             )
 
         top = rows[:6]
+        # 0.15 is a cosine-similarity floor tuned for this corpus with
+        # gemini-embedding-001 (768-d): below it, hits are usually unrelated
+        # noise and the honest answer is "insufficient evidence". Re-tune
+        # whenever the embedding model or corpus changes.
         if not top or top[0]["score"] < 0.15:
             return RetrievalResult(insufficient=True, query=query)
         return RetrievalResult(chunks=top, query=query)
@@ -110,11 +115,15 @@ class SupabaseRetriever:
 
         self.conn = psycopg.connect(settings.database_url, autocommit=True)
         register_vector(self.conn)
+        # One connection is shared across asyncio.to_thread workers; a lock
+        # keeps concurrent cursors from interleaving on the same socket
+        # (same pattern as SupabaseStore's RLock).
+        self._lock = threading.RLock()
 
     def _search_dense(self, vector, api_name):
         from pgvector import Vector
 
-        with self.conn.cursor() as cur:
+        with self._lock, self.conn.cursor() as cur:
             cur.execute(
                 """
                 select chunk_id, chunk_text, source_url, source_title, section, page,
@@ -140,7 +149,7 @@ class SupabaseRetriever:
             return [dict(zip(columns, row)) for row in cur.fetchall()]
 
     def _search_keyword(self, query, api_name):
-        with self.conn.cursor() as cur:
+        with self._lock, self.conn.cursor() as cur:
             cur.execute(
                 """
                 select chunk_id, chunk_text, source_url, source_title, section, page,

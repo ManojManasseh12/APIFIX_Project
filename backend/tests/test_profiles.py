@@ -103,3 +103,26 @@ def test_database_failure_never_breaks_login(monkeypatch):
 
     # Must not raise — the caller is the auth dependency.
     profiles.record_login({"user_id": "user-1", "email": "a@example.com"})
+
+
+def test_transient_failure_is_retried_on_next_request(monkeypatch):
+    """The throttle is only set after a SUCCESSFUL write, so a transient
+    DB failure is retried immediately (not deferred by the 5-min TTL)."""
+    recorder = []
+    calls = {"n": 0}
+
+    def flaky_connect(url, autocommit=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient outage")
+        return _FakeConnection(recorder)
+
+    fake = SimpleNamespace(connect=flaky_connect)
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    monkeypatch.setattr(settings, "database_url", "postgres://db")
+
+    user = {"user_id": "user-1", "email": "a@example.com"}
+    profiles.record_login(user)  # fails, swallowed, NOT throttled
+    profiles.record_login(user)  # retried and succeeds
+
+    assert len(recorder) == 2

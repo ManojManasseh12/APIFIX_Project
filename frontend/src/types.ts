@@ -35,8 +35,10 @@ export type AskMessage = {
   citations?: Citation[];
   provider?: string;
   insufficient?: boolean;
-  /** Set when the router answered this message via a live tool (weather/currency). */
+  /** Set when the router answered this message via a live tool (decode/epoch/dns/ip/time). */
   tool?: string;
+  /** Short chip text built by the backend from the tool result. */
+  tool_label?: string;
 };
 
 /** One persisted Ask turn (question + answer) from /api/ask/history. */

@@ -204,7 +204,13 @@ def list_runs(limit: int = 8, user_id: str | None = None) -> list[dict[str, Any]
         return [
             {
                 "run_id": row["run_id"],
-                "created_at": row["created_at"],
+                # SQLite keeps seconds-since-epoch; normalise to ISO like
+                # Postgres so the frontend's relative-time rendering agrees.
+                "created_at": (
+                    datetime.fromtimestamp(row["created_at"], tz=timezone.utc).isoformat()
+                    if isinstance(row["created_at"], (int, float))
+                    else str(row["created_at"])
+                ),
                 "method": row["method"],
                 "url": row["url"],
                 "status": row["status"],

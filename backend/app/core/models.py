@@ -8,7 +8,9 @@ class RequestSpec(BaseModel):
     url: HttpUrl
     headers: dict[str, str] = Field(default_factory=dict)
     body: Any | None = None
-    timeout_s: float = 10.0
+    # Bounded so a client cannot pin a worker with timeout_s=1e9; the
+    # tester maps this to httpx.Timeout.
+    timeout_s: float = Field(default=10.0, gt=0, le=300)
     expected_status: int | None = None
     question: str = ""
     approved: bool = False

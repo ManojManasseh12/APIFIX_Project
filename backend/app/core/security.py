@@ -100,6 +100,16 @@ def _is_blocked(ip) -> bool:
 
 
 def check_url(raw_url: str, allowed: set[str]) -> None:
+    """SSRF gate run before any network I/O on a user-supplied URL.
+
+    Known limitation (documented, standard for this class of guard):
+    the hostname is resolved here for the private-range check, and
+    httpx re-resolves it independently when it opens the connection —
+    a DNS-rebinding host could pass this check and then land on a
+    private address. Mitigations elsewhere: redirects are never
+    followed, proxies are disabled (trust_env=False), and every target
+    must already be explicitly allowlisted.
+    """
     url = urlparse(raw_url)
     if url.scheme not in {"http", "https"}:
         raise PolicyError(f"scheme not allowed: {url.scheme}")

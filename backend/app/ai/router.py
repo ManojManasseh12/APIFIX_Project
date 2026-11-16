@@ -3,8 +3,8 @@
 Layered decision, cheapest first:
 
 1. Fast rules answer the obvious cases instantly (no network): clear
-   API/documentation questions -> "rag"; unmistakable weather or
-   currency requests -> their tool.
+   API/documentation questions -> "rag"; unmistakable debug-helper
+   requests (JWT decode, epoch, DNS, IP, time) -> their tool.
 2. Anything ambiguous goes to the NVIDIA LLM (OpenAI-compatible NIM
    endpoint) with a tiny classification prompt and a short timeout.
    If NVIDIA is unavailable, unreachable, or returns garbage, the
@@ -23,8 +23,6 @@ import httpx
 
 Route = Literal[
     "rag",
-    "tool:weather",
-    "tool:currency",
     "tool:time",
     "tool:epoch",
     "tool:decode",
@@ -33,8 +31,6 @@ Route = Literal[
 ]
 
 _TOOL_ROUTES = (
-    "tool:weather",
-    "tool:currency",
     "tool:time",
     "tool:epoch",
     "tool:decode",
@@ -54,26 +50,6 @@ _API_MARKERS = re.compile(
     r"put\b|patch\b|delete\b|422|401|403|404|405|429|500|502|503)\b",
     re.IGNORECASE,
 )
-_WEATHER_MARKERS = re.compile(
-    r"\b(weather|temperature|forecast|raining|rain|snow|humidity|wind|"
-    r"how (?:hot|cold|warm)|weather report)\b",
-    re.IGNORECASE,
-)
-_CURRENCY_PATTERNS = [
-    re.compile(
-        r"\b(?:convert|exchange|how much is)\b.*\b(?:usd|inr|eur|gbp|jpy|aud|cad|"
-        r"aed|sgd|chf|cny|sek|nzd|zar|rupees?|dollars?|euros?|pounds?)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:usd|inr|eur|gbp|jpy|aud|cad|aed|sgd|chf|cny|sek|nzd|zar|"
-        r"rupees?|dollars?|euros?|pounds?)\s*(?:to|in|into|vs|versus)\s*"
-        r"(?:usd|inr|eur|gbp|jpy|aud|cad|aed|sgd|chf|cny|sek|nzd|zar|"
-        r"rupees?|dollars?|euros?|pounds?)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(?:inr|usd)\s*(?:to|in|into)\s*[a-z]{3}\b", re.IGNORECASE),
-]
 # Decode requests are checked FIRST: a JWT question contains token-like words
 # that would otherwise trip the API markers, and a URL inside the payload
 # would trip "http".
@@ -116,37 +92,6 @@ _CITY_FILLER = re.compile(
     r"this weekend|please|tell me|give me|show me|the)\b",
     re.IGNORECASE,
 )
-_CURRENCY_WORDS = {
-    "rupee": "INR",
-    "rupees": "INR",
-    "rs": "INR",
-    "dollar": "USD",
-    "dollars": "USD",
-    "usd": "USD",
-    "euro": "EUR",
-    "euros": "EUR",
-    "pound": "GBP",
-    "pounds": "GBP",
-    "yen": "JPY",
-    "dirham": "AED",
-    "dirhams": "AED",
-}
-_FX_CODE = r"(?:rupees?|dollars?|euros?|pounds?|yen|dirhams?|Rs\.?|[A-Za-z]{3})"
-_FX_AMOUNT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(" + _FX_CODE + r")", re.IGNORECASE)
-_FX_PAIR = re.compile(
-    r"(" + _FX_CODE + r")\s*(?:to|in|into|vs|versus)\s*(" + _FX_CODE + r")",
-    re.IGNORECASE,
-)
-
-
-def _code(word: str) -> str | None:
-    """'Rupees'/'dollars'/'inr'/'Rs.' -> 3-letter currency code."""
-    lowered = word.lower().rstrip(".")
-    if lowered in _CURRENCY_WORDS:
-        return _CURRENCY_WORDS[lowered]
-    if re.fullmatch(r"[a-z]{3}", lowered):
-        return lowered.upper()
-    return None
 
 
 @dataclass
@@ -157,7 +102,7 @@ class RouteDecision:
 
 
 def extract_city(question: str) -> str | None:
-    """City name after a weather phrase: 'weather in Chennai', 'is it raining in Oslo?'."""
+    """City name from a place phrase: 'time in Tokyo', 'clock for New York'."""
     match = re.search(
         r"\b(?:in|for|at|of)\s+([A-Za-z][A-Za-z .'-]{1,60})", question, re.IGNORECASE
     )
@@ -170,25 +115,6 @@ def extract_city(question: str) -> str | None:
     if not candidate or len(candidate.split()) > 4:
         return None
     return candidate
-
-
-def extract_fx(question: str) -> dict | None:
-    """Amount + currency pair from 'convert 5000 inr to usd', 'inr to usd', '100 usd in eur'."""
-    pair = _FX_PAIR.search(question)
-    if not pair:
-        return None
-    base = _code(pair.group(1))
-    target = _code(pair.group(2))
-    if not base or not target:
-        return None
-
-    amount_match = _FX_AMOUNT.search(question)
-    amount = 1.0
-    if amount_match:
-        amount_code = _code(amount_match.group(2))
-        if amount_code in (base, target):
-            amount = float(amount_match.group(1).replace(",", ""))
-    return {"amount": amount, "base": base, "target": target}
 
 
 def extract_domain(question: str) -> str | None:
@@ -230,8 +156,7 @@ _ROUTE_PROMPT = (
     "You are the router of an API debugging assistant. Classify the user question "
     "into exactly one of: 'rag' (anything about APIs, HTTP, status codes, auth, "
     "webhooks, documentation, or the assistant's own knowledge base), "
-    "'tool:weather' (weather conditions for a place), 'tool:currency' "
-    "(converting money between currencies), 'tool:time' (current time in a city), "
+    "'tool:time' (current time in a city), "
     "'tool:epoch' (converting a unix timestamp to a date), 'tool:decode' "
     "(decoding a JWT/base64/URL-encoded string), 'tool:dns' (DNS records for a "
     "domain), or 'tool:ip' (geolocation of an IP address). Answer with ONLY a "
@@ -278,10 +203,6 @@ async def _nvidia_route(question: str) -> Route | None:
 
 def _nvidia_args(route: str, question: str) -> dict:
     """Best-effort arguments for a tool route chosen by NVIDIA."""
-    if route == "tool:weather":
-        return {"city": extract_city(question) or ""}
-    if route == "tool:currency":
-        return extract_fx(question) or {"amount": 1.0, "base": "INR", "target": "USD"}
     if route == "tool:time":
         return {"city": extract_city(question) or ""}
     if route == "tool:epoch":
@@ -315,17 +236,6 @@ async def route_question(question: str) -> RouteDecision:
     if _API_MARKERS.search(question):
         return RouteDecision(route="rag", via="rule")
 
-    weather_hit = bool(_WEATHER_MARKERS.search(question))
-    currency_hit = any(p.search(question) for p in _CURRENCY_PATTERNS)
-
-    if weather_hit and not currency_hit:
-        return RouteDecision(
-            route="tool:weather", via="rule", args={"city": extract_city(question) or ""}
-        )
-    if currency_hit and not weather_hit:
-        fx = extract_fx(question)
-        if fx:
-            return RouteDecision(route="tool:currency", via="rule", args=fx)
     if _TIME_MARKERS.search(question):
         return RouteDecision(
             route="tool:time", via="rule", args={"city": extract_city(question) or ""}

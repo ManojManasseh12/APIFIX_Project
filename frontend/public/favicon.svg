@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- APIFix AI favicon: matches the in-app brand mark (dark square, teal pulse line). -->
+  <rect width="64" height="64" rx="14" fill="#020617"/>
+  <path
+    d="m3 16 5-7 4 5 5-8 4 6"
+    transform="translate(5.6 7.8) scale(2.2)"
+    fill="none"
+    stroke="#2dd4bf"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

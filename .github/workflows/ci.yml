@@ -1,0 +1,49 @@
+# Continuous integration: run the backend test suite and build the
+# frontend on every push and pull request. Backend tests are fully
+# offline (mocked HTTP, SQLite, monkeypatched JWKS) and need no secrets;
+# the frontend build runs with empty Vite auth env (same as Playwright).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run backend tests
+        run: PYTHONPATH=backend python -m pytest backend/tests -q
+        env:
+          # Hard fence: tests must never touch real cloud services.
+          SUPABASE_AUTH_JWKS_URL: ""
+          DATABASE_URL: ""
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_AUTH_URL: ""
+          VITE_SUPABASE_AUTH_ANON_KEY: ""

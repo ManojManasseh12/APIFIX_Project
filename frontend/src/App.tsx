@@ -11,6 +11,7 @@ import { AuthPanel } from "./components/AuthPanel";
 import { Dashboard } from "./components/Dashboard";
 import { EventTimeline } from "./components/EventTimeline";
 import type { TimelineEntry } from "./components/EventTimeline";
+import { Landing } from "./components/Landing";
 import { PRESETS } from "./data/presets";
 import { authedFetch, apiUrl } from "./lib/api";
 import { authConfigured, supabase, signOut } from "./lib/supabase";
@@ -24,6 +25,8 @@ export default function App() {
   // Supabase Auth session (null until loaded; always null when auth is off).
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(!authConfigured);
+  // Signed-out visitors see the landing page; the auth screen opens on click.
+  const [showAuthScreen, setShowAuthScreen] = useState<boolean>(false);
   useEffect(() => {
     if (!supabase) return;
     void supabase.auth.getSession().then(({ data }) => {
@@ -458,15 +461,22 @@ export default function App() {
   }
 
   if (authConfigured && !session) {
+    // Landing first; the login screen appears only after the visitor
+    // chooses Login/Sign up (and can go back with the ← button).
     return (
-      <div className="app-shell flex min-h-screen flex-col text-slate-800 antialiased">
-        <AuthPanel
-          onAuthed={() => {
-            // onAuthStateChange usually delivers the session first; re-read
-            // it so a signUp that signs in straight away also flips the gate.
-            void supabase?.auth.getSession().then(({ data }) => setSession(data.session));
-          }}
-        />
+      <div className="app-shell min-h-screen text-slate-800 antialiased">
+        {showAuthScreen ? (
+          <AuthPanel
+            onAuthed={() => {
+              // onAuthStateChange usually delivers the session first; re-read
+              // it so a signUp that signs in straight away also flips the gate.
+              void supabase?.auth.getSession().then(({ data }) => setSession(data.session));
+            }}
+            onBack={() => setShowAuthScreen(false)}
+          />
+        ) : (
+          <Landing onLogin={() => setShowAuthScreen(true)} />
+        )}
       </div>
     );
   }

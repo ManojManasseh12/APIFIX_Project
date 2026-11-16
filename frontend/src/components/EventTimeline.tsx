@@ -39,7 +39,12 @@ export function EventTimeline({ entries }: { entries: TimelineEntry[] }) {
   if (entries.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div
+      role="log"
+      aria-live="polite"
+      aria-label="Pipeline events"
+      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
           Pipeline events

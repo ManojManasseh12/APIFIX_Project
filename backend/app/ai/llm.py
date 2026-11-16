@@ -230,6 +230,11 @@ def _series(
 
 
 _FAMILIES: dict[str, tuple[type, str, str, str, str]] = {
+    # Default model IDs verified live against each provider's API on
+    # 2026-11-16 (Gemini listmodels, Groq chat + /models, Mistral /models,
+    # NVIDIA NIM /models). Do not "clean these up" without re-verifying:
+    # e.g. llama-3.3-70b-versatile 404s on this Groq key while the two
+    # defaults below are confirmed available.
     "gemini": (
         GeminiProvider,
         "GEMINI_API_KEY",

@@ -179,6 +179,49 @@ async def test_retest_returns_a_real_diff(mock_api):
     assert body["diff"]["verdict"] == "changed"
 
 
+async def test_retest_mutation_still_requires_approval(mock_api):
+    """The approval gate carries over to retests: apply_patch must NOT
+    auto-approve a state-changing retest (regression for the bypass)."""
+    await reset_mock(mock_api)
+    payload = {
+        "spec": {
+            "method": "POST",
+            "url": f"{mock_api}/v1/orders",
+            "headers": {"Authorization": "Bearer valid-user-token"},
+            "body": {"items": [{"sku": "A1", "quantity": 2}]},
+            # approved deliberately false: consent must come from the client.
+        },
+        "patch": {"set_headers": {"Authorization": "Bearer valid-user-token"}},
+        "before": None,
+    }
+
+    async with api_client() as client:
+        denied = await client.post("/api/retest", json=payload)
+        allowed = await client.post(
+            "/api/retest", json={**payload, "spec": {**payload["spec"], "approved": True}}
+        )
+
+    assert denied.status_code == 403
+    assert "approved=true" in denied.json()["detail"]
+    assert allowed.status_code == 200
+    assert allowed.json()["observation"]["status"] == 201
+
+
+async def test_request_rejects_absurd_timeout(mock_api):
+    """timeout_s is bounded so a client cannot pin a worker."""
+    spec = {
+        "method": "GET",
+        "url": f"{mock_api}/v1/profile",
+        "timeout_s": 1_000_000_000,
+    }
+
+    async with api_client() as client:
+        response = await client.post("/api/test", json=spec)
+
+    assert response.status_code == 422
+    assert "timeout_s" in response.text
+
+
 async def test_upload_ingest_search_and_delete_over_httpx(
     tmp_path, monkeypatch
 ):

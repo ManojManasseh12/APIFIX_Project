@@ -1,7 +1,21 @@
 """Ask history persistence (ask_turns table, SQLite path)."""
 
+import json
+
 from app.core.config import settings
 from app.db import ask_chats
+from app.db.ask_chats import _parse_citations
+
+
+def test_parse_citations_accepts_list_json_string_and_garbage():
+    """psycopg parses jsonb into a Python list already; SQLite stores text.
+    The Supabase read path must not raise on the already-parsed shape."""
+    citation = {"chunk_id": "mdn:422", "source_url": "https://x", "source_title": "MDN"}
+    assert _parse_citations([citation]) == [citation]
+    assert _parse_citations(json.dumps([citation])) == [citation]
+    assert _parse_citations(None) == []
+    assert _parse_citations("") == []
+    assert _parse_citations("not json") == []
 
 
 def test_ask_history_roundtrip(monkeypatch, tmp_path):
@@ -27,11 +41,11 @@ def test_ask_history_roundtrip(monkeypatch, tmp_path):
         {
             "turn_id": "turn-two",
             "session_id": "sess-1",
-            "question": "weather in Chennai",
-            "answer": "Chennai, India: Overcast, 30.9°C",
+            "question": "what time is it in Tokyo?",
+            "answer": "Tokyo — Friday, 2026-11-13 9:14 PM (Asia/Tokyo, UTC+09:00)",
             "provider": None,
-            "tool": "weather",
-            "tool_label": "Chennai",
+            "tool": "time",
+            "tool_label": "9:14 PM · Tokyo",
             "citations": [],
         }
     )
@@ -39,7 +53,7 @@ def test_ask_history_roundtrip(monkeypatch, tmp_path):
     turns = ask_chats.list_turns(limit=10)
     assert [turn["turn_id"] for turn in turns] == ["turn-two", "turn-one"]  # newest first
     assert turns[1]["citations"][0]["chunk_id"] == "mdn:422"
-    assert turns[0]["tool"] == "weather"
+    assert turns[0]["tool"] == "time"
     # ISO timestamps so the frontend can render relative time on both backends.
     assert "T" in turns[0]["created_at"]
 

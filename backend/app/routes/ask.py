@@ -13,12 +13,10 @@ from app.ai.router import route_question
 from app.ai.rag.pipeline import retrieve_for_api
 from app.ai.tools import (
     ToolError,
-    convert_currency,
     decode_payload,
     dns_lookup,
     format_tool_result,
     get_time,
-    get_weather,
     ip_lookup,
     convert_epoch,
 )
@@ -42,12 +40,6 @@ async def ask_history(
 
 # Every routed tool: an executor taking the args dict, plus a label builder.
 _TOOL_EXECUTORS = {
-    "weather": lambda args: get_weather(args.get("city", "")),
-    "currency": lambda args: convert_currency(
-        float(args.get("amount", 1.0)),
-        args.get("base", "INR"),
-        args.get("target", "USD"),
-    ),
     "time": lambda args: get_time(args.get("city", "")),
     "epoch": lambda args: convert_epoch(args.get("value", "")),
     "decode": lambda args: decode_payload(args.get("payload", "")),
@@ -69,10 +61,6 @@ async def _execute_tool(tool_name: str, args: dict) -> dict:
 
 def _tool_label(tool_name: str, result: dict) -> str:
     """Short chip text for the UI, built from the tool's own result."""
-    if tool_name == "weather":
-        return result.get("city", tool_name)
-    if tool_name == "currency":
-        return f"{result.get('amount')} {result.get('base')} → {result.get('target')}"
     if tool_name == "time":
         return f"{result.get('time_12h')} · {result.get('city')}"
     if tool_name == "epoch":
@@ -88,10 +76,6 @@ def _tool_label(tool_name: str, result: dict) -> str:
 
 def _tool_preview_label(tool_name: str, args: dict) -> str:
     """Chip text emitted before the tool runs, from its arguments alone."""
-    if tool_name == "weather":
-        return f"weather · {args.get('city') or 'lookup'}"
-    if tool_name == "currency":
-        return f"currency · {args.get('amount')} {args.get('base')} → {args.get('target')}"
     if tool_name == "time":
         return f"clock · {args.get('city') or 'lookup'}"
     if tool_name == "epoch":

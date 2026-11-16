@@ -61,18 +61,38 @@ const STARTERS = [
   "My webhook handler receives the same event twice. What should I do?",
 ];
 
-// One tap-through example per routed tool — shows the router's tool side.
-const TOOL_EXAMPLES = [
-  { label: "Weather · Chennai", question: "weather in Chennai today" },
-  { label: "5000 INR → USD", question: "convert 5000 inr to usd" },
-  { label: "DNS · api.github.com", question: "check dns of api.github.com" },
-  { label: "IP · 8.8.8.8", question: "where is 8.8.8.8" },
-  { label: "Time · Tokyo", question: "time in Tokyo" },
-  { label: "Epoch · 1730000000", question: "what is 1730000000 in date?" },
+// One tap-through card per debug helper — real functions that answer instantly.
+const TOOL_CARDS = [
   {
-    label: "Decode · JWT",
+    tool: "decode",
+    title: "Decode · JWT",
+    desc: "See exp and scopes when you get a 401 or 403",
     question:
       "decode this JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjoxNzMwMDAwMDAwfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+  },
+  {
+    tool: "epoch",
+    title: "Epoch · 1730000000",
+    desc: "Turn a Unix timestamp into a date",
+    question: "what is 1730000000 in date?",
+  },
+  {
+    tool: "dns",
+    title: "DNS · api.github.com",
+    desc: "Check that a host resolves",
+    question: "check dns of api.github.com",
+  },
+  {
+    tool: "ip",
+    title: "IP · 8.8.8.8",
+    desc: "See where an address points",
+    question: "where is 8.8.8.8",
+  },
+  {
+    tool: "time",
+    title: "Time · Tokyo",
+    desc: "Get the current time in any city",
+    question: "time in Tokyo",
   },
 ];
 
@@ -97,7 +117,13 @@ export function AskPanel() {
   const [provider, setProvider] = useState<string | null>(null);
   const [toolCall, setToolCall] = useState<string | null>(null);
   const [latestSources, setLatestSources] = useState<Citation[]>([]);
+  // When the latest answer came from a live tool, the sources panel explains
+  // that instead of showing documentation chunks.
+  const [lastTool, setLastTool] = useState<{ tool: string; label: string | null } | null>(null);
   const [askHistory, setAskHistory] = useState<AskTurnSummary[]>([]);
+  // History arrives from the backend after the panel mounts; show an
+  // honest loading state instead of flashing "0 saved" first.
+  const [historyLoading, setHistoryLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // Cancel the in-flight stream if the panel unmounts mid-answer.
@@ -117,6 +143,8 @@ export function AskPanel() {
       if (response.ok) setAskHistory((await response.json()).turns ?? []);
     } catch {
       // History panel keeps whatever it had; the backend may be restarting.
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -148,6 +176,7 @@ export function AskPanel() {
     setProvider(null);
     setToolCall(null);
     setLatestSources([]);
+    setLastTool(null);
 
     let retrieved: Citation[] = [];
 
@@ -156,7 +185,7 @@ export function AskPanel() {
         { question: trimmed, history, session_id: sessionRef.current },
         (event, data) => {
         if (event === "tool") {
-          // Backend builds the chip text (covers all 7 tools); fall back to the name.
+          // Backend builds the chip text (covers all 5 debug helpers); fall back to the name.
           setToolCall(data.label || data.name);
         }
 
@@ -208,12 +237,16 @@ export function AskPanel() {
                 provider: data.provider ?? undefined,
                 insufficient: Boolean(data.insufficient),
                 tool: data.tool ?? undefined,
+                tool_label: data.tool_label ?? undefined,
               };
             }
             return next;
           });
           setProvider(data.provider ?? null);
           setToolCall(null);
+          setLastTool(
+            data.tool ? { tool: data.tool, label: data.tool_label ?? null } : null
+          );
           void refreshAskHistory();
         }
 
@@ -261,6 +294,7 @@ export function AskPanel() {
     setProvider(null);
     setToolCall(null);
     setLatestSources([]);
+    setLastTool(null);
     inputRef.current?.focus();
   }
 
@@ -274,12 +308,16 @@ export function AskPanel() {
         citations: turn.citations ?? [],
         provider: turn.provider ?? undefined,
         tool: turn.tool ?? undefined,
+        tool_label: turn.tool_label ?? undefined,
       },
     ]);
     setLatestSources(turn.citations ?? []);
     setProvider(turn.provider ?? null);
     setError(null);
     setToolCall(null);
+    setLastTool(
+      turn.tool ? { tool: turn.tool, label: turn.tool_label ?? null } : null
+    );
   }
 
   return (
@@ -324,28 +362,33 @@ export function AskPanel() {
               <p className="text-xs leading-relaxed text-slate-600">
                 Ask a question in plain English. API and documentation questions are
                 answered from the grounded documentation index with citable sources;
-                live-data questions are answered by real tools.
+                the debug helpers below are real functions that run live.
               </p>
-              <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Live tools
+              <p className="mt-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Debug helpers
               </p>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                {TOOL_EXAMPLES.map((toolExample) => (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {TOOL_CARDS.map((card) => (
                   <button
-                    key={toolExample.label}
-                    onClick={() => ask(toolExample.question)}
+                    key={card.tool}
+                    onClick={() => ask(card.question)}
                     disabled={busy}
-                    title={toolExample.question}
-                    className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 disabled:opacity-50"
+                    title={card.question}
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:opacity-50"
                   >
-                    🔧 {toolExample.label}
+                    <span className="font-mono text-[11px] font-bold text-violet-700">
+                      {card.title}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-slate-600">
+                      {card.desc}
+                    </span>
                   </button>
                 ))}
               </div>
               <p className="mt-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 From the docs
               </p>
-              <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {STARTERS.map((starter) => (
                   <button
                     key={starter}
@@ -374,9 +417,19 @@ export function AskPanel() {
                 {message.role === "assistant" && !message.content && busy && (
                   <span className="text-slate-400">Retrieving docs and thinking…</span>
                 )}
-                {message.role === "assistant" && message.tool && (
-                  <span className="mb-1.5 inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                    🔧 answered with the {message.tool} tool
+                {message.role === "assistant" && message.tool && message.content && (
+                  <div className="mb-2">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                      ⚡ Live tool · {message.tool_label || message.tool}
+                    </span>
+                    <p className="mt-1 text-[10px] leading-snug text-violet-500">
+                      Computed now by a real function — not taken from the documentation.
+                    </p>
+                  </div>
+                )}
+                {message.role === "assistant" && !message.tool && message.content && (
+                  <span className="mb-2 inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
+                    📖 From the docs
                   </span>
                 )}
                 <div className="whitespace-pre-wrap">{message.content}</div>
@@ -453,6 +506,39 @@ export function AskPanel() {
 
       <aside className="space-y-5 lg:col-span-4">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+          <h2 className="text-sm font-bold text-slate-900">How to read an answer</h2>
+          <ul className="mt-3 space-y-3">
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                ⚡ Live tool
+              </span>
+              <p className="text-[11px] leading-snug text-slate-600">
+                A real function just ran (decoder, epoch, DNS, IP, clock). The
+                value is computed at answer time — fresh and exact.
+              </p>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 shrink-0 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
+                📖 From the docs
+              </span>
+              <p className="text-[11px] leading-snug text-slate-600">
+                Written from your indexed documentation. Check the cited
+                sources under the answer — they link to the exact pages used.
+              </p>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                ⚠ Partial
+              </span>
+              <p className="text-[11px] leading-snug text-slate-600">
+                Flagged when the docs didn't cover the whole question; the
+                flagged part is general guidance, not a documented fact.
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
           <h2 className="text-sm font-bold text-slate-900">API concepts</h2>
           <p className="mt-1 text-xs text-slate-500">
             Tap a topic to ask about it.
@@ -479,9 +565,19 @@ export function AskPanel() {
             </span>
           </div>
           {latestSources.length === 0 ? (
-            <p className="mt-3 text-xs text-slate-500">
-              Sources used for the latest answer will appear here.
-            </p>
+            lastTool ? (
+              <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                This answer came from the live{" "}
+                <span className="font-semibold text-violet-700">{lastTool.tool}</span>{" "}
+                tool{lastTool.label ? ` (${lastTool.label})` : ""} — it has no
+                documentation sources. The violet “Live tool” badge on the answer
+                shows which function produced it.
+              </p>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                Sources used for the latest answer will appear here.
+              </p>
+            )
           ) : (
             <ul className="mt-3 space-y-2">
               {latestSources.map((source) => (
@@ -509,9 +605,20 @@ export function AskPanel() {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-900">Ask history</h2>
-            <span className="text-[11px] text-slate-400">{askHistory.length} saved</span>
+            <span className="text-[11px] text-slate-400">
+              {historyLoading ? "loading…" : `${askHistory.length} saved`}
+            </span>
           </div>
-          {askHistory.length === 0 ? (
+          {historyLoading ? (
+            <ul className="mt-3 space-y-2" aria-hidden="true">
+              {[0, 1].map((i) => (
+                <li
+                  key={i}
+                  className="h-[52px] animate-pulse rounded-xl border border-slate-200 bg-slate-100"
+                />
+              ))}
+            </ul>
+          ) : askHistory.length === 0 ? (
             <p className="mt-3 text-xs text-slate-500">
               Answered questions are saved automatically — like diagnosis runs — and
               can be reopened here after a reload.
@@ -537,11 +644,11 @@ export function AskPanel() {
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {turn.tool ? (
                         <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                          🔧 {turn.tool}
+                          ⚡ {turn.tool_label || turn.tool}
                         </span>
                       ) : (
                         <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
-                          RAG
+                          📖 From the docs
                         </span>
                       )}
                       {turn.provider && (

@@ -6,6 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
+# Frontends that may call the API no matter what FRONTEND_ORIGIN says:
+# the Vite dev server and the deployed Cloudflare Pages site.
+DEFAULT_FRONTEND_ORIGINS = ("http://localhost:5173", "https://apifix-project.pages.dev")
+
 # BaseSettings reads .env for typed settings, but provider adapters read
 # os.environ directly. Load the same file into the process environment too,
 # otherwise keys added to .env are invisible to the LLM providers.
@@ -80,12 +84,30 @@ class Settings(BaseSettings):
     )
 
     @property
+    def cors_origins(self) -> list[str]:
+        """Origins the API allows browser calls from.
+
+        ``FRONTEND_ORIGIN`` is additive, not overriding: the documented
+        local and production origins are always included. A partial env
+        (for example only ``localhost`` copied to Render) must never
+        silently block the Cloudflare Pages frontend.
+        """
+        configured = {
+            origin.strip().rstrip("/")
+            for origin in self.frontend_origin.split(",")
+            if origin.strip()
+        }
+        return sorted(configured | set(DEFAULT_FRONTEND_ORIGINS))
+
+    @property
     def auth_enabled(self) -> bool:
         """True when the Supabase Auth project is configured.
 
-        Only the JWKS URL is required to *verify* tokens; the anon key is
-        used by the frontend. Template values from .env.example must not
-        switch authentication on accidentally.
+        Only the JWKS URL is required to *verify* tokens. The backend
+        never uses the anon key itself — it is read here only so the
+        .env.example template is consistent; the browser uses its own
+        VITE_SUPABASE_AUTH_ANON_KEY. Template values from .env.example
+        must not switch authentication on accidentally.
         """
         url = self.supabase_auth_jwks_url.strip()
         if not url:

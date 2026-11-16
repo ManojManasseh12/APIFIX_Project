@@ -82,10 +82,16 @@ export function Header({
       </div>
 
       {/* Workspace tabs */}
-      <nav className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+      <nav
+        role="tablist"
+        aria-label="Workspace sections"
+        className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1"
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
             onClick={() => onTabChange(tab.id)}
             className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
               activeTab === tab.id

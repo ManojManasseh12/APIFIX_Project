@@ -104,11 +104,11 @@ def test_empty_conversation_block_placeholder():
 
 def test_tool_prompt_template_fills_from_tool_data():
     prompt = build_tool_context(
-        "weather", {"city": "Chennai"}, {"temperature_c": 31, "feels_like_c": 34}
+        "epoch", {"value": "1730000000"}, {"epoch": 1730000000, "date_utc": "2024-10-27"}
     )
-    assert "TOOL: weather" in prompt
-    assert '"city": "Chennai"' in prompt
-    assert '"temperature_c": 31' in prompt
+    assert "TOOL: epoch" in prompt
+    assert '"epoch": 1730000000' in prompt
+    assert '"date_utc": "2024-10-27"' in prompt
     assert "Present this tool result to the user." in prompt
 
 

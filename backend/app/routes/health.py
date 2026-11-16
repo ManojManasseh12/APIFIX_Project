@@ -22,6 +22,6 @@ def health():
         "service": "apifix-ai",
         "runner": "httpx",
         "retrieval_backend": settings.retrieval_backend,
-        "database": "supabase" if settings.database_url else "sqlite",
+        "database": "supabase" if settings.database_url_configured else "sqlite",
         "providers": families,
     }

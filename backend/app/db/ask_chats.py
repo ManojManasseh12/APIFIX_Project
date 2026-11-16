@@ -163,6 +163,25 @@ def save(turn: dict[str, Any]) -> None:
         )
 
 
+def _parse_citations(raw: Any) -> list[dict[str, Any]]:
+    """Citations out of the stored column.
+
+    psycopg parses ``jsonb`` into a Python list already; SQLite stores a
+    JSON string. Accept both so the Supabase read path cannot raise
+    ``TypeError: the JSON object must be str`` (which previously made
+    /api/ask/history silently return [] on the cloud backend).
+    """
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
 def list_turns(limit: int = 10, user_id: str | None = None) -> list[dict[str, Any]]:
     """Recent Ask turns (newest first) for the Ask history panel.
 
@@ -212,7 +231,7 @@ def list_turns(limit: int = 10, user_id: str | None = None) -> list[dict[str, An
                 "provider": row[4],
                 "tool": row[5],
                 "tool_label": row[6],
-                "citations": json.loads(row[7]) if row[7] else [],
+                "citations": _parse_citations(row[7]),
             }
             for index, row in enumerate(rows)
         ]

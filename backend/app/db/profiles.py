@@ -36,6 +36,7 @@ create table if not exists profiles (
 
 # Re-write a user's row at most once per this interval, per process.
 _WRITE_EVERY_S = 300.0
+_CACHE_MAX_ENTRIES = 10_000
 
 _pg_ready = False
 _recent_writes: dict[str, float] = {}
@@ -64,7 +65,6 @@ def record_login(user: dict[str, Any] | None) -> None:
     with _cache_lock:
         if time.monotonic() - _recent_writes.get(user_id, -_WRITE_EVERY_S) < _WRITE_EVERY_S:
             return
-        _recent_writes[user_id] = time.monotonic()
 
     try:
         import psycopg
@@ -86,5 +86,16 @@ def record_login(user: dict[str, Any] | None) -> None:
                 (user_id, user.get("email"), _provider_of(user)),
             )
     except Exception:
-        # Profile bookkeeping must never break authentication.
+        # Profile bookkeeping must never break authentication. The throttle
+        # was NOT set before the write, so a transient DB failure is retried
+        # on the next request instead of being deferred by the TTL.
         logger.warning("Could not record profile for %s", user_id, exc_info=True)
+        return
+
+    with _cache_lock:
+        # Bound the cache: one entry per user is fine at demo scale, but a
+        # cap keeps a long-lived process from growing it without limit.
+        if len(_recent_writes) >= _CACHE_MAX_ENTRIES:
+            oldest = min(_recent_writes, key=_recent_writes.get)
+            _recent_writes.pop(oldest, None)
+        _recent_writes[user_id] = time.monotonic()

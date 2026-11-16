@@ -105,6 +105,10 @@ async def retrieve_for_api(
             other_versions=sorted(versions),
             query=question,
         )
+    # 0.15 is a cosine-similarity floor tuned for this corpus with
+    # gemini-embedding-001 (768-d): below it, hits are usually unrelated
+    # noise and the honest answer is "insufficient evidence". Must match
+    # the floor in retriever.py; re-tune when the embedding model changes.
     if not dense or dense[0].score < 0.15:
         return RetrievalResult(insufficient=True, query=question)
 

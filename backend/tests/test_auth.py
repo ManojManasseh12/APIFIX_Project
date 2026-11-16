@@ -208,8 +208,8 @@ def test_ask_turns_are_saved_and_listed_per_user(monkeypatch, tmp_path):
             "question": "q",
             "answer": "a",
             "provider": None,
-            "tool": "weather",
-            "tool_label": "Chennai",
+            "tool": "decode",
+            "tool_label": "jwt decoded",
             "citations": [],
         }
     )

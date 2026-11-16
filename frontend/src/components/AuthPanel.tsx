@@ -6,7 +6,13 @@ import { signIn, signUp, supabase } from "../lib/supabase";
  * and no session exists. UI only: it talks to the auth project and holds
  * no secrets; the backend verifies every issued token independently.
  */
-export function AuthPanel({ onAuthed }: { onAuthed: () => void }) {
+export function AuthPanel({
+  onAuthed,
+  onBack,
+}: {
+  onAuthed: () => void;
+  onBack?: () => void;
+}) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,6 +67,15 @@ export function AuthPanel({ onAuthed }: { onAuthed: () => void }) {
   return (
     <div className="flex min-h-[80vh] items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 text-xs font-medium text-slate-500 transition hover:text-slate-800"
+          >
+            ← Back to overview
+          </button>
+        )}
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-slate-950">
             <svg className="h-6 w-6 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

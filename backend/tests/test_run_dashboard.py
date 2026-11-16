@@ -46,3 +46,25 @@ def test_dashboard_stats_aggregate_persisted_runs(monkeypatch, tmp_path):
             "runs": 2,
         }
     ]
+
+
+def test_list_runs_sqlite_returns_iso_timestamps(monkeypatch, tmp_path):
+    """SQLite stores epoch seconds; list_runs must normalise to ISO like the
+    Postgres path, or the frontend renders 1970 dates (regression)."""
+    monkeypatch.setattr(settings, "database_url", "")
+    monkeypatch.setattr(settings, "runs_db", tmp_path / "runs.sqlite3")
+    runs.initialize()
+    runs.save(
+        {
+            "run_id": "run-one",
+            "method": "GET",
+            "url": "https://api.example.test/users",
+            "status": 200,
+        }
+    )
+
+    listed = runs.list_runs(limit=5)
+    assert len(listed) == 1
+    created_at = listed[0]["created_at"]
+    # ISO with a "T" separator and a timezone offset, matching ask_chats.
+    assert "T" in created_at and ("+" in created_at or "Z" in created_at)
