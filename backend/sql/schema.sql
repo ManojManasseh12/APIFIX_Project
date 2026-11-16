@@ -90,3 +90,15 @@ create table if not exists ask_turns (
 
 alter table ask_turns add column if not exists user_id text;
 create index if not exists ask_turns_user_id_idx on ask_turns (user_id);
+
+-- One row per signed-in user, mirrored from Supabase Auth by the backend
+-- (app/db/profiles.py) the first time each user's token is verified.
+-- Auth's own account data lives in the hidden auth.users schema; this
+-- public copy is what shows up in the Table Editor.
+create table if not exists profiles (
+  user_id text primary key,
+  email text,
+  provider text,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now()
+);

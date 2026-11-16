@@ -1,13 +1,14 @@
 """Supabase Auth token verification (FastAPI dependency).
 
-The auth project (a separate Supabase project) issues ES256/RS256 access
-tokens after login. This backend never sees passwords — it only verifies
+The Supabase project issues ES256/RS256 access tokens after login. This
+backend never sees passwords — it only verifies
 the JWT the frontend sends on every request:
 
 1. Read the ``Authorization: Bearer <token>`` header.
-2. Fetch the auth project's public keys from its JWKS endpoint (cached).
+2. Fetch the project's public keys from its JWKS endpoint (cached).
 3. Verify signature, expiry, and issuer; reject anything else with 401.
-4. Return ``{"user_id": ..., "email": ...}`` from the token's ``sub`` claim.
+4. Return ``{"user_id": ..., "email": ...}`` from the token's ``sub`` claim,
+   after mirroring the account into ``public.profiles`` (best effort).
 
 When ``SUPABASE_AUTH_JWKS_URL`` is not configured the dependency is a
 pass-through that returns ``None``, so local development and the test
@@ -24,6 +25,7 @@ from fastapi import HTTPException, Request
 from jwt import PyJWK, PyJWKClient
 
 from app.core.config import settings
+from app.db.profiles import record_login
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +103,13 @@ def get_current_user(request: Request) -> dict[str, Any] | None:
         logger.info("Rejected invalid access token", exc_info=True)
         raise _unauthorized("Invalid or expired token")
 
-    return {
+    user = {
         "user_id": claims["sub"],
         "email": claims.get("email"),
         "role": claims.get("role"),
+        "app_metadata": claims.get("app_metadata"),
     }
+    # Mirror the account into public.profiles so signed-in users show up
+    # in the Table Editor (Supabase's own auth.users is not exposed there).
+    record_login(user)
+    return user
