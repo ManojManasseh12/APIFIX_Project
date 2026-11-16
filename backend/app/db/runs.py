@@ -31,6 +31,7 @@ create table if not exists runs (
     error_type text,
     retrieved_ids jsonb not null default '[]'::jsonb,
     provider text,
+    prompt text,
     diagnosis text,
     patch jsonb
 )
@@ -47,6 +48,7 @@ create table if not exists runs (
     error_type text,
     retrieved_ids text,
     provider text,
+    prompt text,
     diagnosis text,
     patch text
 )
@@ -76,6 +78,7 @@ def _ensure_pg_table() -> None:
         # Tables created before authentication keep working: they gain the
         # column here, existing rows stay NULL (= legacy/pre-auth data).
         connection.execute("alter table runs add column if not exists user_id text")
+        connection.execute("alter table runs add column if not exists prompt text")
     _pg_ready = True
 
 
@@ -87,6 +90,8 @@ def _ensure_sqlite_columns() -> None:
         }
         if "user_id" not in names:
             connection.execute("alter table runs add column user_id text")
+        if "prompt" not in names:
+            connection.execute("alter table runs add column prompt text")
 
 
 def _user_filter(user_id: str | None) -> str:
@@ -102,7 +107,12 @@ def _save_sqlite(run: dict[str, Any]) -> None:
     _ensure_sqlite_columns()
     with _get_sqlite_connection() as connection:
         connection.execute(
-            "insert or replace into runs values (?,?,?,?,?,?,?,?,?,?,?)",
+            """
+            insert or replace into runs (
+                run_id, created_at, user_id, method, url, status, error_type,
+                retrieved_ids, provider, prompt, diagnosis, patch
+            ) values (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
             (
                 run["run_id"],
                 time.time(),
@@ -113,6 +123,7 @@ def _save_sqlite(run: dict[str, Any]) -> None:
                 run.get("error_type"),
                 json.dumps(run.get("retrieved_ids", [])),
                 run.get("provider"),
+                run.get("prompt"),
                 run.get("diagnosis"),
                 json.dumps(run.get("patch")),
             ),
@@ -128,8 +139,8 @@ def _save_supabase(run: dict[str, Any]) -> None:
             """
             insert into runs (
                 run_id, user_id, method, url, status, error_type,
-                retrieved_ids, provider, diagnosis, patch
-            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                retrieved_ids, provider, prompt, diagnosis, patch
+            ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (run_id) do update set
                 user_id = excluded.user_id,
                 method = excluded.method,
@@ -138,6 +149,7 @@ def _save_supabase(run: dict[str, Any]) -> None:
                 error_type = excluded.error_type,
                 retrieved_ids = excluded.retrieved_ids,
                 provider = excluded.provider,
+                prompt = excluded.prompt,
                 diagnosis = excluded.diagnosis,
                 patch = excluded.patch
             """,
@@ -150,6 +162,7 @@ def _save_supabase(run: dict[str, Any]) -> None:
                 run.get("error_type"),
                 json.dumps(run.get("retrieved_ids", [])),
                 run.get("provider"),
+                run.get("prompt"),
                 run.get("diagnosis"),
                 json.dumps(run.get("patch")),
             ),

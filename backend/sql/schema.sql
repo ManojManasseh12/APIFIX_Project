@@ -73,6 +73,20 @@ create table if not exists runs (
 alter table runs add column if not exists user_id text;
 create index if not exists runs_user_id_idx on runs (user_id);
 
+-- Which system prompt produced the diagnosis: 'default' or 'custom'
+-- (an override saved in prompt_templates). Auto-migrated at startup too.
+alter table runs add column if not exists prompt text;
+
+-- Editable system prompts (one active row per purpose). Empty table =
+-- the built-in defaults in app/ai/prompts.py are used. Managed by the
+-- Prompts tab in the UI; see app/db/prompt_templates.py.
+create table if not exists prompt_templates (
+  purpose text primary key,
+  name text not null default 'custom',
+  template text not null,
+  updated_at timestamptz not null default now()
+);
+
 -- Ask API chat history (one row per answered question). Also auto-created
 -- at startup; see app/db/ask_chats.py.
 create table if not exists ask_turns (

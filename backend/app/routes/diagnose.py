@@ -14,6 +14,7 @@ from app.core.models import RequestSpec
 from app.core.security import require_approval
 from app.core.tester import execute
 from app.db import runs
+from app.db.prompt_templates import get_override
 from app.routes import sse
 from app.utils.ids import generate_uuid
 
@@ -133,9 +134,14 @@ async def diagnose(
             ) -> None:
                 skipped.append((name, reason, has_next))
 
+            # Prompt templates: the active custom template (if any) wins
+            # over the built-in default; the source is recorded on the run.
+            template = get_override("diagnosis")
+            system_prompt = template["template"] if template else SYSTEM_PROMPT
+
             try:
                 async for provider_name, token in stream_with_fallback(
-                    providers, SYSTEM_PROMPT, context, on_skip=on_skip
+                    providers, system_prompt, context, on_skip=on_skip
                 ):
                     while skipped:
                         name, reason, has_next = skipped.pop(0)
@@ -181,6 +187,7 @@ async def diagnose(
                     "error_type": observation.error_type,
                     "retrieved_ids": sorted(valid_ids),
                     "provider": provider_name,
+                    "prompt": "custom" if template else "default",
                     "diagnosis": text,
                     "patch": patch,
                 }
@@ -195,6 +202,7 @@ async def diagnose(
                     "invalid_citations": sorted(invalid),
                     "patch": patch,
                     "provider": provider_name,
+                    "prompt": "custom" if template else "default",
                 },
             )
         except Exception as exc:

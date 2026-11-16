@@ -9,6 +9,9 @@ import { DiagnosisViewer } from "./components/DiagnosisViewer";
 import { AskPanel } from "./components/AskPanel";
 import { AuthPanel } from "./components/AuthPanel";
 import { Dashboard } from "./components/Dashboard";
+import { EventTimeline } from "./components/EventTimeline";
+import type { TimelineEntry } from "./components/EventTimeline";
+import { PromptTemplates } from "./components/PromptTemplates";
 import { PRESETS } from "./data/presets";
 import { authedFetch, apiUrl } from "./lib/api";
 import { authConfigured, supabase, signOut } from "./lib/supabase";
@@ -78,6 +81,29 @@ export default function App() {
   const [fallbacks, setFallbacks] = useState<string[]>([]);
   const [isMockData, setIsMockData] = useState<boolean>(true);
 
+  // Live pipeline timeline, one entry per server-sent event received
+  // during a diagnosis run.
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const timelineIdRef = useRef(1);
+
+  function pushTimelineEntry(label: string, state: TimelineEntry["state"], detail?: string) {
+    setTimeline((prev) => [
+      ...prev,
+      { id: timelineIdRef.current++, label, state, detail },
+    ]);
+  }
+
+  /** Complete the currently running entry (used when the next step starts). */
+  function finishRunningTimeline(detail?: string, state: TimelineEntry["state"] = "done") {
+    setTimeline((prev) =>
+      prev.map((entry) =>
+        entry.state === "running"
+          ? { ...entry, state, detail: detail ?? entry.detail }
+          : entry
+      )
+    );
+  }
+
   // Recent run history from the backend (Supabase / SQLite)
   const [recentRuns, setRecentRuns] = useState<RunSummary[]>([]);
 
@@ -135,6 +161,8 @@ export default function App() {
     setPatch(null);
     setCitations([]);
     setSources([]);
+    setTimeline([]);
+    pushTimelineEntry("Executing HTTP request", "running");
 
     try {
       await streamDiagnosis(
@@ -142,21 +170,35 @@ export default function App() {
         (event, data) => {
           if (event === "observation") {
             setObservation(data);
+            finishRunningTimeline(
+              `HTTP ${data.status}${data.latency_ms != null ? ` · ${Math.round(data.latency_ms)} ms` : ""}`
+            );
+            pushTimelineEntry("Retrieving documentation", "running");
           }
           if (event === "token") {
             setWhatWentWrong((prev) => prev + data.text);
           }
           if (event === "retrieval") {
             setCitations(data.chunks ?? []);
+            finishRunningTimeline(`${(data.chunks ?? []).length} chunks retrieved`);
+            pushTimelineEntry("Generating diagnosis", "running");
           }
           if (event === "provider") {
             setProviderLabel(data.name ?? null);
+            setTimeline((prev) =>
+              prev.map((entry) =>
+                entry.state === "running"
+                  ? { ...entry, detail: `${data.name} · streaming…` }
+                  : entry
+              )
+            );
           }
           if (event === "provider_fallback") {
             setFallbacks((prev) => [
               ...prev,
               `${data.from}: ${data.reason}`,
             ]);
+            pushTimelineEntry(`${data.from} unavailable`, "warn", data.reason);
           }
           if (event === "done") {
             if (data.diagnosis) {
@@ -166,10 +208,12 @@ export default function App() {
               setPatch(data.patch);
               setSuggestedFix(JSON.stringify(data.patch, null, 2));
             }
+            finishRunningTimeline("Diagnosis complete");
             setStatus("done");
             void refreshRuns();
           }
           if (event === "error") {
+            finishRunningTimeline(data.message ?? data.code, "error");
             if (data.code === "no_providers_configured") {
               setError(
                 "No AI provider keys configured in .env. Test completed; add GEMINI_API_KEY for live LLM streaming."
@@ -477,6 +521,7 @@ export default function App() {
                 observationStatus={observation?.status ?? null}
                 busy={status === "running"}
               />
+              <EventTimeline entries={timeline} />
               <ResponseViewer observation={observation} isMockData={isMockData} />
             </div>
 
@@ -500,6 +545,8 @@ export default function App() {
               />
             </div>
           </div>
+        ) : activeTab === "prompts" ? (
+          <PromptTemplates />
         ) : (
           <AskPanel />
         )}

@@ -13,6 +13,7 @@ from app.routes import (
     diagnose,
     health,
     ingest,
+    prompts,
     retest,
     runs as runs_routes,
     search,
@@ -76,3 +77,4 @@ app.include_router(policy.router, prefix="/api", dependencies=protected)
 app.include_router(upload.router, prefix="/api", dependencies=protected)
 app.include_router(ingest.router, prefix="/api", dependencies=protected)
 app.include_router(search.router, prefix="/api", dependencies=protected)
+app.include_router(prompts.router, prefix="/api", dependencies=protected)
