@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { signIn, signUp } from "../lib/supabase";
+import { signIn, signUp, supabase } from "../lib/supabase";
 
 /**
  * Sign in / create account screen shown when Supabase Auth is configured
@@ -13,6 +13,19 @@ export function AuthPanel({ onAuthed }: { onAuthed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  /** Google sign-in: redirects to Google, then back to this origin
+   * (which must be allow-listed in the auth project's URL Configuration).
+   * The App's onAuthStateChange picks the session up on return. */
+  async function handleGoogle() {
+    if (!supabase) return;
+    setError(null);
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (oauthError) setError(oauthError.message);
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -109,6 +122,29 @@ export function AuthPanel({ onAuthed }: { onAuthed: () => void }) {
             {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
           </button>
         </form>
+
+        {/* Google sign-in (configured in the auth project's Providers). */}
+        <div className="mt-4">
+          <div className="relative text-center">
+            <span className="absolute inset-x-0 top-1/2 h-px bg-slate-200" />
+            <span className="relative bg-white px-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              or
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleGoogle}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#EA4335" d="M12 5.04c1.62 0 3.06.56 4.2 1.64l3.12-3.12C17.46 1.8 14.96.75 12 .75 7.62.75 3.84 3.22 2.04 6.8l3.66 2.84C6.54 7.14 9.03 5.04 12 5.04z" />
+              <path fill="#4285F4" d="M23.25 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.3c-.27 1.48-1.11 2.73-2.36 3.57l3.62 2.81c2.12-1.96 3.69-4.85 3.69-8.62z" />
+              <path fill="#FBBC05" d="M5.7 14.36a7.2 7.2 0 0 1 0-4.72L2.04 6.8a11.26 11.26 0 0 0 0 10.4l3.66-2.84z" />
+              <path fill="#34A853" d="M12 23.25c3.04 0 5.6-1 7.46-2.72l-3.62-2.81c-1 .68-2.29 1.08-3.84 1.08-2.97 0-5.46-2.1-6.3-4.9l-3.66 2.84c1.8 3.58 5.58 6.51 9.96 6.51z" />
+            </svg>
+            Continue with Google
+          </button>
+        </div>
 
         <button
           type="button"
