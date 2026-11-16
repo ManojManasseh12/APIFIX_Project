@@ -46,6 +46,9 @@ frontend_origins = settings.cors_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,
+    # Cloudflare Pages serves every deploy under <hash>.apifix-project.pages.dev;
+    # allow those preview origins too (still scoped to this project's domain).
+    allow_origin_regex=r"https://[a-z0-9-]+\.apifix-project\.pages\.dev",
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
