@@ -213,3 +213,109 @@ test("Ask API streams an answer with a citation", async ({ page }) => {
   await page.getByRole("button", { name: "New chat" }).click();
   await expect(page.getByText("Ask a question in plain English.")).toBeVisible();
 });
+
+test("connections sidebar lists MCP apps and stays honest about preview", async ({
+  page,
+}) => {
+  await page.route("**/api/connections", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        github: {
+          configured: false,
+          connected: false,
+          account: null,
+          name: null,
+          avatar_url: null,
+          default_repo: null,
+          source: "personal_access_token",
+          error: null,
+          tools: [],
+        },
+      },
+    })
+  );
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ask API" }).click();
+
+  // Open by default with the catalog visible.
+  await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /GitHub/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Google Calendar/ })).toBeVisible();
+  await expect(page.getByText(/No apps connected yet/)).toBeVisible();
+
+  // Collapse → title hidden, expand → title back (state is real, not cosmetic).
+  await page.getByRole("button", { name: "Collapse connections" }).click();
+  await expect(page.getByRole("heading", { name: "Connections" })).toBeHidden();
+  await page.getByRole("button", { name: "Expand connections" }).click();
+  await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+
+  // App detail: real tool list, write tools flagged, Connect disabled.
+  await page.getByRole("button", { name: /GitHub/ }).click();
+  await expect(page.getByText("search_issues")).toBeVisible();
+  await expect(page.getByText("create_issue")).toBeVisible();
+  await expect(page.getByText("⚠ needs approval").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Connect", exact: true })
+  ).toBeDisabled();
+  await expect(
+    page.getByText(/Add GITHUB_PAT to the backend \.env/)
+  ).toBeVisible();
+
+  // Back returns to the list.
+  await page.getByRole("button", { name: "← All apps" }).click();
+  await expect(page.getByRole("button", { name: /Google Calendar/ })).toBeVisible();
+});
+
+test("connections sidebar shows a verified GitHub connection", async ({ page }) => {
+  await page.route("**/api/connections", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        github: {
+          configured: true,
+          connected: true,
+          account: "test-user",
+          name: "Test User",
+          avatar_url: null,
+          default_repo: "octocat/Hello-World",
+          source: "personal_access_token",
+          error: null,
+          tools: [
+            {
+              name: "list_issues",
+              description: "List issues in a repository",
+              write: false,
+              available: true,
+            },
+            {
+              name: "create_issue",
+              description: "Open a new issue",
+              write: true,
+              available: false,
+            },
+          ],
+        },
+      },
+    })
+  );
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ask API" }).click();
+
+  // Real state: connected account appears in both sections.
+  await expect(page.getByText("@test-user").first()).toBeVisible();
+  await expect(page.getByText("Connected").first()).toBeVisible();
+
+  await page.getByRole("button", { name: /GitHub/ }).first().click();
+  await expect(
+    page.getByRole("button", { name: /Connected as @test-user/ })
+  ).toBeDisabled();
+  await expect(page.getByText("list_issues")).toBeVisible();
+  await expect(page.getByText("live").first()).toBeVisible();
+  await expect(page.getByText("create_issue")).toBeVisible();
+  await expect(page.getByText("⚠ needs approval").first()).toBeVisible();
+  await expect(page.getByText("Default repo:")).toBeVisible();
+  await expect(page.getByText("octocat/Hello-World")).toBeVisible();
+});

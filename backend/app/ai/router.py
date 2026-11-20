@@ -28,6 +28,11 @@ Route = Literal[
     "tool:decode",
     "tool:dns",
     "tool:ip",
+    "tool:github_issues",
+    "tool:github_prs",
+    "tool:github_repo",
+    "tool:github_repos",
+    "tool:github_write",
 ]
 
 _TOOL_ROUTES = (
@@ -36,6 +41,11 @@ _TOOL_ROUTES = (
     "tool:decode",
     "tool:dns",
     "tool:ip",
+    "tool:github_issues",
+    "tool:github_prs",
+    "tool:github_repo",
+    "tool:github_repos",
+    "tool:github_write",
 )
 
 _NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -84,6 +94,30 @@ _DOMAIN = re.compile(
     r"(?:com|org|net|io|dev|ai|in|co|gov|edu|app|me|uk|de|fr|jp|us)\b",
     re.IGNORECASE,
 )
+
+# GitHub: only route when the question asks for repository DATA. A plain
+# "what is GitHub Actions?" stays in the knowledge base.
+_GITHUB_MARKERS = re.compile(r"\bgithub\b|github\.com", re.IGNORECASE)
+_GITHUB_ISSUE_MARKERS = re.compile(r"\bissues?\b|\bbugs?\b|\btickets?\b", re.IGNORECASE)
+_GITHUB_PR_MARKERS = re.compile(
+    r"\b(?:pull\s+requests?|prs?|merge\s+requests?)\b", re.IGNORECASE
+)
+_GITHUB_REPO_MARKERS = re.compile(
+    r"\b(?:repos?|repositories?|stars?|forks?|default\s+branch|about)\b",
+    re.IGNORECASE,
+)
+_GITHUB_LIST_REPOS = re.compile(
+    r"\b(?:my|all|list|show)\b[^.!?]{0,24}\b(?:repos?|repositories?)\b",
+    re.IGNORECASE,
+)
+_GITHUB_WRITE_MARKERS = re.compile(
+    r"\b(?:create|file|submit|post|add|make|close|comment\s+on)\b"
+    r"[^.!?]{0,40}\b(?:issues?|prs?|pull\s+requests?)\b"
+    r"|\bopen\s+(?:a|an|new)\s+(?:issues?|prs?|pull\s+requests?)\b",
+    re.IGNORECASE,
+)
+_GITHUB_CLOSED_STATE = re.compile(r"\bclosed\b|\bmerged\b|\bdone\b", re.IGNORECASE)
+_GITHUB_ALL_STATE = re.compile(r"\ball\b|\bevery\b", re.IGNORECASE)
 
 # ── Argument extraction ──────────────────────────────────────────────────────
 
@@ -150,6 +184,61 @@ def extract_decode_payload(question: str) -> str | None:
     return None
 
 
+def _github_state(question: str) -> str:
+    if _GITHUB_CLOSED_STATE.search(question):
+        return "closed"
+    if _GITHUB_ALL_STATE.search(question):
+        return "all"
+    return "open"
+
+
+def _github_decision(question: str) -> RouteDecision | None:
+    """Route GitHub data questions; leave GitHub documentation to RAG."""
+    from app.connectors import github
+
+    explicit_repo = github.parse_repo(question)
+    mentions_github = bool(_GITHUB_MARKERS.search(question))
+    if not (mentions_github or explicit_repo):
+        # Without a GitHub mention or an explicit owner/repo, words like
+        # "issue" belong to normal API questions.
+        return None
+    repo = explicit_repo or github.default_repo()
+
+    wants_issue = bool(_GITHUB_ISSUE_MARKERS.search(question))
+    wants_pr = bool(_GITHUB_PR_MARKERS.search(question))
+    wants_repo = bool(_GITHUB_REPO_MARKERS.search(question))
+    if not (wants_issue or wants_pr or wants_repo or repo):
+        # "What is GitHub Actions?" — documentation, not repository data.
+        return None
+
+    if _GITHUB_WRITE_MARKERS.search(question):
+        action = (
+            "comment_on_issue"
+            if re.search(r"\bcomment", question, re.IGNORECASE)
+            else "create_issue"
+        )
+        return RouteDecision(
+            route="tool:github_write",
+            via="rule",
+            args={"repo": repo, "action": action},
+        )
+    if wants_issue:
+        return RouteDecision(
+            route="tool:github_issues",
+            via="rule",
+            args={"repo": repo, "state": _github_state(question), "limit": 10},
+        )
+    if wants_pr:
+        return RouteDecision(
+            route="tool:github_prs",
+            via="rule",
+            args={"repo": repo, "state": _github_state(question), "limit": 10},
+        )
+    if not repo and _GITHUB_LIST_REPOS.search(question):
+        return RouteDecision(route="tool:github_repos", via="rule", args={"limit": 10})
+    return RouteDecision(route="tool:github_repo", via="rule", args={"repo": repo})
+
+
 # ── NVIDIA classification (for everything the rules cannot settle) ───────────
 
 _ROUTE_PROMPT = (
@@ -159,7 +248,11 @@ _ROUTE_PROMPT = (
     "'tool:time' (current time in a city), "
     "'tool:epoch' (converting a unix timestamp to a date), 'tool:decode' "
     "(decoding a JWT/base64/URL-encoded string), 'tool:dns' (DNS records for a "
-    "domain), or 'tool:ip' (geolocation of an IP address). Answer with ONLY a "
+    "domain), 'tool:ip' (geolocation of an IP address), 'tool:github_issues' "
+    "(list a repository's issues), 'tool:github_prs' (list a repository's pull "
+    "requests), 'tool:github_repo' (details of one named repository), or "
+    "'tool:github_repos' (list the user's repositories). Questions ABOUT GitHub "
+    "itself (what Actions are, how webhooks work) are 'rag'. Answer with ONLY a "
     'JSON object: {"route": "..."}. No explanation.'
 )
 
@@ -213,6 +306,23 @@ def _nvidia_args(route: str, question: str) -> dict:
         return {"host": extract_domain(question) or ""}
     if route == "tool:ip":
         return {"ip": extract_ip(question) or ""}
+    if route in ("tool:github_issues", "tool:github_prs", "tool:github_repo"):
+        from app.connectors.github import parse_repo
+
+        args: dict = {"repo": parse_repo(question) or ""}
+        if route in ("tool:github_issues", "tool:github_prs"):
+            args["state"] = _github_state(question)
+            args["limit"] = 10
+        return args
+    if route == "tool:github_repos":
+        return {"limit": 10}
+    if route == "tool:github_write":
+        return {
+            "repo": "",
+            "action": "comment_on_issue"
+            if re.search(r"\bcomment", question, re.IGNORECASE)
+            else "create_issue",
+        }
     return {}
 
 
@@ -233,6 +343,10 @@ async def route_question(question: str) -> RouteDecision:
         return RouteDecision(
             route="tool:ip", via="rule", args={"ip": extract_ip(question) or ""}
         )
+    # GitHub data questions must beat the generic "request"/"token" API words.
+    github = _github_decision(question)
+    if github is not None:
+        return github
     if _API_MARKERS.search(question):
         return RouteDecision(route="rag", via="rule")
 

@@ -249,4 +249,32 @@ def format_tool_result(tool_name: str, result: dict) -> str:
         where = ", ".join(str(part) for part in (result.get("city"), result.get("region"), result.get("country")) if part)
         owner = result.get("isp") or result.get("org") or ""
         return f"{result.get('ip')} — {where or 'location unknown'}" + (f" ({owner})" if owner else "")
+    if tool_name in ("github_issues", "github_prs"):
+        items = result.get("items") or []
+        kind = "issue" if tool_name == "github_issues" else "pull request"
+        state = result.get("state", "open")
+        head = f"{result.get('repo')} — {len(items)} {state} {kind}{'' if len(items) == 1 else 's'}"
+        if not items:
+            return head + "."
+        lines = [
+            f"#{item.get('number')} {item.get('title')}"
+            + (f" (by {item.get('author')})" if item.get("author") else "")
+            for item in items[:5]
+        ]
+        return head + ": " + "; ".join(lines)
+    if tool_name == "github_repo":
+        summary = (
+            f"{result.get('repo')} — ★ {result.get('stars')}, "
+            f"{result.get('forks')} forks, language {result.get('language') or 'unknown'}, "
+            f"default branch {result.get('default_branch') or '?'}"
+        )
+        if result.get("description"):
+            summary += f". {result['description']}"
+        return summary
+    if tool_name == "github_repos":
+        items = result.get("items") or []
+        head = f"{len(items)} repositor{'y' if len(items) == 1 else 'ies'}"
+        if not items:
+            return head + "."
+        return head + ": " + "; ".join(item.get("repo") or "?" for item in items[:8])
     return json.dumps(result, ensure_ascii=False)

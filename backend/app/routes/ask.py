@@ -21,6 +21,8 @@ from app.ai.tools import (
     convert_epoch,
 )
 from app.core.auth import get_current_user
+from app.connectors import github
+from app.connectors.github import GitHubError
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.db import ask_chats
@@ -45,7 +47,26 @@ _TOOL_EXECUTORS = {
     "decode": lambda args: decode_payload(args.get("payload", "")),
     "dns": lambda args: dns_lookup(args.get("host", "")),
     "ip": lambda args: ip_lookup(args.get("ip", "")),
+    "github_issues": lambda args: github.list_issues(
+        args.get("repo", ""), args.get("state", "open"), args.get("limit", 10)
+    ),
+    "github_prs": lambda args: github.list_pull_requests(
+        args.get("repo", ""), args.get("state", "open"), args.get("limit", 10)
+    ),
+    "github_repo": lambda args: github.repo_summary(args.get("repo", "")),
+    "github_repos": lambda args: github.list_repos(args.get("limit", 10)),
+    "github_write": lambda args: _github_write_blocked(args),
 }
+
+
+def _github_write_blocked(args: dict) -> dict:
+    """Write tools stay off until Ask has an explicit approval step."""
+    action = (args.get("action") or "write").replace("_", " ")
+    raise ToolError(
+        f"GitHub {action} is not enabled yet. Ask tools are read-only for now — "
+        "write actions will use the same explicit approval gate as POST/PATCH "
+        "in the request tester."
+    )
 
 
 async def _execute_tool(tool_name: str, args: dict) -> dict:
@@ -53,10 +74,18 @@ async def _execute_tool(tool_name: str, args: dict) -> dict:
     executor = _TOOL_EXECUTORS.get(tool_name)
     if executor is None:
         raise ToolError(f"Unknown tool '{tool_name}'.")
-    result = executor(args)
-    if hasattr(result, "__await__"):
-        result = await result
+    try:
+        result = executor(args)
+        if hasattr(result, "__await__"):
+            result = await result
+    except GitHubError as exc:
+        # The connector's messages are already user-facing and actionable.
+        raise ToolError(str(exc)) from exc
     return result
+
+
+def _count(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
 
 
 def _tool_label(tool_name: str, result: dict) -> str:
@@ -71,6 +100,20 @@ def _tool_label(tool_name: str, result: dict) -> str:
         return f"{result.get('host')} → {len(result.get('addresses', []))} A record(s)"
     if tool_name == "ip":
         return f"{result.get('ip')} · {result.get('country') or '?'}"
+    if tool_name == "github_issues":
+        return (
+            f"GitHub · {result.get('repo')} · "
+            f"{_count(int(result.get('count', 0)), result.get('state', 'open') + ' issue')}"
+        )
+    if tool_name == "github_prs":
+        return (
+            f"GitHub · {result.get('repo')} · "
+            f"{_count(int(result.get('count', 0)), result.get('state', 'open') + ' PR')}"
+        )
+    if tool_name == "github_repo":
+        return f"GitHub · {result.get('repo')} · ★ {result.get('stars')}"
+    if tool_name == "github_repos":
+        return f"GitHub · {_count(int(result.get('count', 0)), 'repository')}"
     return tool_name
 
 
@@ -86,6 +129,16 @@ def _tool_preview_label(tool_name: str, args: dict) -> str:
         return f"dns · {args.get('host') or 'lookup'}"
     if tool_name == "ip":
         return f"ip · {args.get('ip') or '?'}"
+    if tool_name == "github_issues":
+        return f"github · issues · {args.get('repo') or 'default repo'}"
+    if tool_name == "github_prs":
+        return f"github · pull requests · {args.get('repo') or 'default repo'}"
+    if tool_name == "github_repo":
+        return f"github · {args.get('repo') or 'repository'}"
+    if tool_name == "github_repos":
+        return "github · repositories"
+    if tool_name == "github_write":
+        return f"github · {str(args.get('action') or 'write').replace('_', ' ')}"
     return tool_name
 
 

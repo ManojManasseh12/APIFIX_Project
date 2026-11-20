@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { authedFetch } from "../lib/api";
+import { authedFetch, getConnections } from "../lib/api";
 import { streamAsk } from "../lib/sse";
-import type { AskMessage, AskTurnSummary, Citation } from "../types";
+import { AskSidebar } from "./AskSidebar";
+import type {
+  AskMessage,
+  AskTurnSummary,
+  Citation,
+  ConnectionsResponse,
+} from "../types";
 const TOPICS = [
   {
     label: "Methods",
@@ -124,8 +130,24 @@ export function AskPanel() {
   // History arrives from the backend after the panel mounts; show an
   // honest loading state instead of flashing "0 saved" first.
   const [historyLoading, setHistoryLoading] = useState(true);
+  // ChatGPT-style Connections sidebar: remembered per browser. On a first
+  // visit it opens on desktop and stays closed on phones (where it would
+  // otherwise cover the chat behind a drawer).
+  const [connectionsOpen, setConnectionsOpen] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem("apifix.ask.sidebar");
+      if (stored === "closed") return false;
+      if (stored === "open") return true;
+      return window.innerWidth >= 1024;
+    } catch {
+      return true;
+    }
+  });
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Real connection state from the backend — never assumed by the UI.
+  const [connections, setConnections] = useState<ConnectionsResponse | null>(null);
+  const [connectionsError, setConnectionsError] = useState<string | null>(null);
   // Cancel the in-flight stream if the panel unmounts mid-answer.
   const streamAbortRef = useRef<AbortController | null>(null);
   // One id per chat session so persisted turns can be grouped later.
@@ -148,9 +170,33 @@ export function AskPanel() {
     }
   }
 
+  async function refreshConnections() {
+    try {
+      setConnections(await getConnections());
+      setConnectionsError(null);
+    } catch (err) {
+      // Backend asleep or auth expired: the sidebar says so honestly
+      // instead of showing a fake "Connected" badge.
+      setConnections(null);
+      setConnectionsError(
+        (err as Error)?.message ?? "Could not read connection status."
+      );
+    }
+  }
+
   useEffect(() => {
     void refreshAskHistory();
+    void refreshConnections();
   }, []);
+
+  // Remember the sidebar state across reloads.
+  useEffect(() => {
+    try {
+      localStorage.setItem("apifix.ask.sidebar", connectionsOpen ? "open" : "closed");
+    } catch {
+      // Private mode / storage disabled — the state just won't persist.
+    }
+  }, [connectionsOpen]);
 
   async function ask(question: string) {
     const trimmed = question.trim();
@@ -321,8 +367,24 @@ export function AskPanel() {
   }
 
   return (
-    <div className="mx-auto grid max-w-[1550px] grid-cols-1 gap-5 lg:grid-cols-12">
-      <section className="flex min-h-[70vh] flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs lg:col-span-8">
+    <>
+      {connectionsOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden"
+          onClick={() => setConnectionsOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <div className="mx-auto flex max-w-[1750px] items-start gap-5">
+        <AskSidebar
+          open={connectionsOpen}
+          onToggle={() => setConnectionsOpen((value) => !value)}
+          onClose={() => setConnectionsOpen(false)}
+          connections={connections}
+          connectionsError={connectionsError}
+        />
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-12">
+          <section className="flex min-h-[70vh] flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs lg:col-span-8">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900">API assistant</h2>
@@ -331,6 +393,14 @@ export function AskPanel() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setConnectionsOpen(true)}
+              aria-label="Open connections"
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800 lg:hidden"
+            >
+              🔌 Connections
+            </button>
             <button
               onClick={resetChat}
               disabled={busy || messages.length === 0}
@@ -662,6 +732,8 @@ export function AskPanel() {
           )}
         </section>
       </aside>
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

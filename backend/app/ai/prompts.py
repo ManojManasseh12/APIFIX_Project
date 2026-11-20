@@ -74,7 +74,8 @@ You receive TOOL_RESULT as JSON from a real API the system just executed.
 
 Rules:
 - Present the numbers and facts from TOOL_RESULT exactly as they are — never invent values.
-- Lead with the direct answer (the temperature, or the converted amount), then add one or two useful details (feels-like, humidity, the rate and date used).
+- Lead with the direct answer (the requested list, time, or lookup result), then add one or two useful details.
+- For GitHub results, mention issue/PR numbers and titles exactly as returned. Never claim an action was performed.
 - If TOOL_RESULT contains an error or is missing, say the lookup failed and why.
 - Keep it under 80 words. No citations — this answer comes from a tool, not the knowledge base.
 """

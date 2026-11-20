@@ -53,6 +53,36 @@ export type AskTurnSummary = {
   citations: Citation[];
 };
 
+/** One tool a backend connector reports (GET /api/connections). */
+export type ConnectionTool = {
+  name: string;
+  description: string;
+  /** true → changes data and needs explicit approval. */
+  write: boolean;
+  /** false → planned but not callable yet. */
+  available: boolean;
+};
+
+/**
+ * GitHub connection state. Honest by construction:
+ * configured = a token exists, connected = GitHub accepted it.
+ */
+export type GitHubConnection = {
+  configured: boolean;
+  connected: boolean;
+  account: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  default_repo: string | null;
+  source: string;
+  error: string | null;
+  tools: ConnectionTool[];
+};
+
+export type ConnectionsResponse = {
+  github: GitHubConnection;
+};
+
 export type Patch = {
   set_headers: Record<string, string>;
   remove_headers: string[];

@@ -83,6 +83,12 @@ class Settings(BaseSettings):
         "http://localhost:5173,https://apifix-project.pages.dev"
     )
 
+    # GitHub connector (Ask tab). The token stays server-side; the browser
+    # only ever sees connection status. Empty GITHUB_PAT = not connected.
+    github_pat: str = ""
+    github_default_repo: str = ""
+    github_api_url: str = "https://api.github.com"
+
     @property
     def cors_origins(self) -> list[str]:
         """Origins the API allows browser calls from.

@@ -10,6 +10,7 @@ from app.db import ask_chats, runs
 from app.routes import (
     ask,
     policy,
+    connections,
     diagnose,
     health,
     ingest,
@@ -75,3 +76,4 @@ app.include_router(policy.router, prefix="/api", dependencies=protected)
 app.include_router(upload.router, prefix="/api", dependencies=protected)
 app.include_router(ingest.router, prefix="/api", dependencies=protected)
 app.include_router(search.router, prefix="/api", dependencies=protected)
+app.include_router(connections.router, prefix="/api", dependencies=protected)

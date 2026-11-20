@@ -10,3 +10,8 @@ os.environ["DATABASE_URL"] = ""
 # when the developer's .env points at a real Supabase project.
 os.environ["SUPABASE_AUTH_URL"] = ""
 os.environ["SUPABASE_AUTH_JWKS_URL"] = ""
+
+# And for the GitHub connector: tests must never call GitHub with a real
+# token. Individual tests set a fake token and mock the HTTP transport.
+os.environ["GITHUB_PAT"] = ""
+os.environ["GITHUB_DEFAULT_REPO"] = ""

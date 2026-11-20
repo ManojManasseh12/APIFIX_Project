@@ -1,4 +1,5 @@
 import { authHeaders } from "./supabase";
+import type { ConnectionsResponse } from "../types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
@@ -26,4 +27,13 @@ export async function authedFetch(
     throw new Error("Your session has expired — please sign in again.");
   }
   return response;
+}
+
+/** Connection status for the Ask sidebar (never includes the token). */
+export async function getConnections(): Promise<ConnectionsResponse> {
+  const response = await authedFetch("/api/connections");
+  if (!response.ok) {
+    throw new Error(`Connections request failed: ${response.status}`);
+  }
+  return (await response.json()) as ConnectionsResponse;
 }
