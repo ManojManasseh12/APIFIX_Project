@@ -33,6 +33,10 @@ Route = Literal[
     "tool:github_repo",
     "tool:github_repos",
     "tool:github_write",
+    "tool:gcal_events",
+    "tool:gcal_search",
+    "tool:gmail_search",
+    "tool:google_write",
 ]
 
 _TOOL_ROUTES = (
@@ -46,6 +50,10 @@ _TOOL_ROUTES = (
     "tool:github_repo",
     "tool:github_repos",
     "tool:github_write",
+    "tool:gcal_events",
+    "tool:gcal_search",
+    "tool:gmail_search",
+    "tool:google_write",
 )
 
 _NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -118,6 +126,45 @@ _GITHUB_WRITE_MARKERS = re.compile(
 )
 _GITHUB_CLOSED_STATE = re.compile(r"\bclosed\b|\bmerged\b|\bdone\b", re.IGNORECASE)
 _GITHUB_ALL_STATE = re.compile(r"\ball\b|\bevery\b", re.IGNORECASE)
+
+# Google Calendar / Gmail: only personal data questions. Anything about the
+# APIs themselves (scopes, OAuth, integration) stays in the knowledge base.
+_CAL_MARKERS = re.compile(
+    r"\b(?:calendar|meetings?|appointments?|agenda|events?)\b", re.IGNORECASE
+)
+_CAL_PERSONAL = re.compile(
+    r"\b(?:my|i|me|today|tomorrow|tonight|this week|next week|this month|"
+    r"upcoming|next|busy|free|availability|am i)\b",
+    re.IGNORECASE,
+)
+_GMAIL_MARKERS = re.compile(
+    r"\b(?:gmail|e-?mails?|inbox|mailbox|threads?)\b", re.IGNORECASE
+)
+_GMAIL_INTENT = re.compile(
+    r"\b(?:find|search|show|list|any|latest|recent|unread|from|about|"
+    r"regarding|received|sent|read|check|have|did)\b",
+    re.IGNORECASE,
+)
+_GMAIL_PERSONAL = re.compile(
+    r"\b(?:my|me|i|inbox|unread|from|to|received|sent|latest|recent|any)\b",
+    re.IGNORECASE,
+)
+# Setup / documentation wording: "how do I integrate the Gmail API?" is RAG.
+_SETUP_QUESTION = re.compile(
+    r"\b(?:integrat\w*|set ?up|configure|oauth|scopes?|api key|credentials?|"
+    r"documentation|docs|sdk|webhook)\b",
+    re.IGNORECASE,
+)
+_GOOGLE_WRITE = re.compile(
+    r"\b(?:create|schedule|add|book|delete|cancel|update|move|accept|decline|"
+    r"respond to|send|draft|label|archive)\b[^.!?]{0,40}"
+    r"\b(?:events?|meetings?|appointments?|emails?|messages?|invites?|invitations?)\b",
+    re.IGNORECASE,
+)
+_CAL_TIME_WORDS = {
+    "today", "tomorrow", "tonight", "this week", "next week", "this month",
+    "the week", "the month", "my calendar", "my schedule",
+}
 
 # ── Argument extraction ──────────────────────────────────────────────────────
 
@@ -239,6 +286,135 @@ def _github_decision(question: str) -> RouteDecision | None:
     return RouteDecision(route="tool:github_repo", via="rule", args={"repo": repo})
 
 
+def _calendar_range(question: str) -> str:
+    if re.search(r"\btoday\b", question, re.IGNORECASE):
+        return "today"
+    if re.search(r"\btomorrow\b", question, re.IGNORECASE):
+        return "tomorrow"
+    if re.search(r"\bnext week\b", question, re.IGNORECASE):
+        return "next_week"
+    if re.search(r"\b(?:this|next) month\b", question, re.IGNORECASE):
+        return "month"
+    return "week"
+
+
+def _calendar_query(question: str) -> str:
+    """The free-text part of a calendar question ("meeting with Ariel")."""
+    match = re.search(
+        r"\b(?:about|with|regarding|titled|called|named)\s+([^?.!,]{2,60})",
+        question,
+        re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    phrase = re.split(
+        r"\b(?:today|tomorrow|tonight|this week|next week|this month|on|at|in)\b",
+        match.group(1),
+        flags=re.IGNORECASE,
+    )[0]
+    phrase = phrase.strip(" .,?!'\"")
+    if not phrase or phrase.lower() in _CAL_TIME_WORDS or len(phrase.split()) > 6:
+        return ""
+    return phrase
+
+
+_GMAIL_STOPWORDS = {
+    "the", "a", "an", "my", "me", "i", "you", "your", "any", "all", "for",
+    "from", "to", "in", "on", "of", "and", "or", "is", "are", "was", "were",
+    "do", "does", "did", "have", "has", "had", "show", "find", "search",
+    "list", "check", "read", "latest", "recent", "email", "emails", "mail",
+    "gmail", "inbox", "about", "regarding", "please", "can", "could",
+    "would", "what", "which", "who", "when", "that", "this", "with",
+}
+
+
+def _gmail_query(question: str) -> str:
+    """Turn a plain-English mail question into Gmail query syntax."""
+    parts: list[str] = []
+
+    address = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", question)
+    if address:
+        prefix = "to" if re.search(r"\b(?:to|sent to)\b", question, re.IGNORECASE) else "from"
+        parts.append(f"{prefix}:{address.group(0)}")
+
+    if re.search(r"\bunread\b", question, re.IGNORECASE):
+        parts.append("is:unread")
+    if re.search(r"\bhas:attachment\b|\bwith attachments?\b|\battached\b", question, re.IGNORECASE):
+        parts.append("has:attachment")
+
+    subject = re.search(
+        r"\b(?:about|regarding|subject)\s+([^?.!,]{2,40})", question, re.IGNORECASE
+    )
+    if subject:
+        phrase = subject.group(1).strip(" .,?!'\"")
+        if phrase:
+            parts.append(f'"{phrase}"')
+
+    if re.search(r"\btoday\b", question, re.IGNORECASE):
+        parts.append("newer_than:1d")
+    elif re.search(r"\bthis week\b", question, re.IGNORECASE):
+        parts.append("newer_than:7d")
+    elif re.search(r"\bthis month\b", question, re.IGNORECASE):
+        parts.append("newer_than:30d")
+
+    if not parts:
+        words = [
+            word
+            for word in re.findall(r"[A-Za-z0-9@._-]{3,}", question)
+            if word.lower() not in _GMAIL_STOPWORDS
+        ]
+        parts.append(" ".join(words[:6]) if words else "in:inbox")
+
+    return " ".join(parts)
+
+
+def _google_decision(question: str) -> RouteDecision | None:
+    """Route personal Calendar/Gmail questions; keep API questions in RAG."""
+    if _SETUP_QUESTION.search(question):
+        # "How do I integrate the Gmail API?" is documentation.
+        return None
+
+    is_calendar = bool(_CAL_MARKERS.search(question))
+    is_gmail = bool(_GMAIL_MARKERS.search(question))
+    if not (is_calendar or is_gmail):
+        return None
+
+    write = _GOOGLE_WRITE.search(question)
+    # "send me the latest email" is a read request, not a send.
+    if write and not re.match(r"send\s+me\b", write.group(0), re.IGNORECASE):
+        action = "event" if is_calendar else "email"
+        return RouteDecision(
+            route="tool:google_write", via="rule", args={"action": action}
+        )
+
+    if is_calendar and _CAL_PERSONAL.search(question):
+        query = _calendar_query(question)
+        if query:
+            return RouteDecision(
+                route="tool:gcal_search",
+                via="rule",
+                args={"query": query, "range": _calendar_range(question)},
+            )
+        return RouteDecision(
+            route="tool:gcal_events",
+            via="rule",
+            args={"range": _calendar_range(question)},
+        )
+
+    if (
+        is_gmail
+        and _GMAIL_INTENT.search(question)
+        and _GMAIL_PERSONAL.search(question)
+    ):
+        return RouteDecision(
+            route="tool:gmail_search",
+            via="rule",
+            args={"query": _gmail_query(question), "limit": 10},
+        )
+
+    return None
+
+
 # ── NVIDIA classification (for everything the rules cannot settle) ───────────
 
 _ROUTE_PROMPT = (
@@ -250,10 +426,14 @@ _ROUTE_PROMPT = (
     "(decoding a JWT/base64/URL-encoded string), 'tool:dns' (DNS records for a "
     "domain), 'tool:ip' (geolocation of an IP address), 'tool:github_issues' "
     "(list a repository's issues), 'tool:github_prs' (list a repository's pull "
-    "requests), 'tool:github_repo' (details of one named repository), or "
-    "'tool:github_repos' (list the user's repositories). Questions ABOUT GitHub "
-    "itself (what Actions are, how webhooks work) are 'rag'. Answer with ONLY a "
-    'JSON object: {"route": "..."}. No explanation.'
+    "requests), 'tool:github_repo' (details of one named repository), "
+    "'tool:github_repos' (list the user's repositories), "
+    "'tool:gcal_events' (the user's own calendar events), "
+    "'tool:gcal_search' (search the user's own calendar), or "
+    "'tool:gmail_search' (search the user's own Gmail). Questions ABOUT GitHub "
+    "itself (what Actions are, how webhooks work) are 'rag', and so are "
+    "questions about the Google APIs (scopes, OAuth, integration). Answer with "
+    'ONLY a JSON object: {"route": "..."}. No explanation.'
 )
 
 
@@ -323,6 +503,17 @@ def _nvidia_args(route: str, question: str) -> dict:
             if re.search(r"\bcomment", question, re.IGNORECASE)
             else "create_issue",
         }
+    if route == "tool:gcal_events":
+        return {"range": _calendar_range(question)}
+    if route == "tool:gcal_search":
+        return {
+            "query": _calendar_query(question),
+            "range": _calendar_range(question),
+        }
+    if route == "tool:gmail_search":
+        return {"query": _gmail_query(question), "limit": 10}
+    if route == "tool:google_write":
+        return {"action": "event" if _CAL_MARKERS.search(question) else "email"}
     return {}
 
 
@@ -347,6 +538,10 @@ async def route_question(question: str) -> RouteDecision:
     github = _github_decision(question)
     if github is not None:
         return github
+    # Calendar/Gmail data questions also beat the generic API words.
+    google = _google_decision(question)
+    if google is not None:
+        return google
     if _API_MARKERS.search(question):
         return RouteDecision(route="rag", via="rule")
 

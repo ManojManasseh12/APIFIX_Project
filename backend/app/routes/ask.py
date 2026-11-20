@@ -23,6 +23,8 @@ from app.ai.tools import (
 from app.core.auth import get_current_user
 from app.connectors import github
 from app.connectors.github import GitHubError
+from app.mcp import google
+from app.mcp.google import GoogleError
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.db import ask_chats
@@ -69,8 +71,33 @@ def _github_write_blocked(args: dict) -> dict:
     )
 
 
-async def _execute_tool(tool_name: str, args: dict) -> dict:
+# Google tools are per user, so they take (user_id, args) instead of args.
+_GOOGLE_EXECUTORS = {
+    "gcal_events": google.list_events,
+    "gcal_search": google.search_events,
+    "gmail_search": google.search_threads,
+}
+
+
+async def _execute_tool(tool_name: str, args: dict, user_id: str | None = None) -> dict:
     """Run one routed tool; raises ToolError on a clean, explainable failure."""
+    if tool_name == "google_write":
+        action = args.get("action") or "write"
+        raise ToolError(
+            f"Google Calendar/Gmail {action} actions are not enabled yet. Ask "
+            "tools are read-only for now — write actions will use the same "
+            "explicit approval gate as POST/PATCH in the request tester."
+        )
+
+    google_executor = _GOOGLE_EXECUTORS.get(tool_name)
+    if google_executor is not None:
+        if not user_id:
+            raise ToolError("Sign in to use Google Calendar or Gmail.")
+        try:
+            return await google_executor(user_id, args)
+        except GoogleError as exc:
+            raise ToolError(str(exc)) from exc
+
     executor = _TOOL_EXECUTORS.get(tool_name)
     if executor is None:
         raise ToolError(f"Unknown tool '{tool_name}'.")
@@ -114,6 +141,20 @@ def _tool_label(tool_name: str, result: dict) -> str:
         return f"GitHub · {result.get('repo')} · ★ {result.get('stars')}"
     if tool_name == "github_repos":
         return f"GitHub · {_count(int(result.get('count', 0)), 'repository')}"
+    if tool_name in ("gcal_events", "gcal_search"):
+        when = {
+            "today": "today",
+            "tomorrow": "tomorrow",
+            "next_week": "next week",
+            "month": "next 30 days",
+        }.get(str(result.get("range")), "this week")
+        extra = f' · “{result["query"]}”' if result.get("query") else ""
+        return f"Google Calendar · {_count(int(result.get('count', 0)), 'event')} · {when}{extra}"
+    if tool_name == "gmail_search":
+        return (
+            f"Gmail · {_count(int(result.get('count', 0)), 'thread')} · "
+            f"{result.get('query')}"
+        )
     return tool_name
 
 
@@ -139,6 +180,14 @@ def _tool_preview_label(tool_name: str, args: dict) -> str:
         return "github · repositories"
     if tool_name == "github_write":
         return f"github · {str(args.get('action') or 'write').replace('_', ' ')}"
+    if tool_name == "gcal_events":
+        return f"google calendar · {str(args.get('range') or 'week').replace('_', ' ')}"
+    if tool_name == "gcal_search":
+        return f"google calendar · “{args.get('query') or ''}”"
+    if tool_name == "gmail_search":
+        return f"gmail · {args.get('query') or 'in:inbox'}"
+    if tool_name == "google_write":
+        return f"google · {args.get('action') or 'write'}"
     return tool_name
 
 
@@ -176,7 +225,7 @@ async def ask(
                     },
                 )
                 try:
-                    result = await _execute_tool(tool_name, decision.args)
+                    result = await _execute_tool(tool_name, decision.args, user_id)
                 except ToolError as exc:
                     yield sse(
                         "error",

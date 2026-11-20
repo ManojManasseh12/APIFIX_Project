@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.db import ask_chats, runs
+from app.mcp import store as mcp_store
 from app.routes import (
     ask,
     policy,
@@ -36,6 +38,12 @@ async def lifespan(app: FastAPI):
     await runs.initialize_async()
     logger.info("Initializing Ask history (%s backend)...", backend)
     await ask_chats.initialize_async()
+    # MCP connections are optional: a table-creation failure must not stop
+    # the app from starting (Google would simply report not configured).
+    try:
+        await asyncio.to_thread(mcp_store.initialize)
+    except Exception:
+        logger.warning("Could not initialize mcp_connections table", exc_info=True)
     yield
     logger.info("App shutdown")
 
@@ -77,3 +85,7 @@ app.include_router(upload.router, prefix="/api", dependencies=protected)
 app.include_router(ingest.router, prefix="/api", dependencies=protected)
 app.include_router(search.router, prefix="/api", dependencies=protected)
 app.include_router(connections.router, prefix="/api", dependencies=protected)
+# The OAuth callback is reached by Google's browser redirect, not by our
+# frontend, so it is registered without the auth dependency; its signed
+# state parameter carries (and proves) the user identity.
+app.include_router(connections.public_router, prefix="/api")

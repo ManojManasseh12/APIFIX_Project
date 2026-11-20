@@ -37,3 +37,31 @@ export async function getConnections(): Promise<ConnectionsResponse> {
   }
   return (await response.json()) as ConnectionsResponse;
 }
+
+/** Google's consent URL; the browser navigates to it. */
+export async function startGoogleConnect(): Promise<string> {
+  const response = await authedFetch("/api/connections/google/start");
+  if (!response.ok) {
+    let detail = `Google connect failed: ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body?.detail) detail = String(body.detail);
+    } catch {
+      // keep the status-based message
+    }
+    throw new Error(detail);
+  }
+  const body = (await response.json()) as { auth_url?: string };
+  if (!body.auth_url) {
+    throw new Error("The backend did not return a Google sign-in URL.");
+  }
+  return body.auth_url;
+}
+
+/** Forget this user's Google grant (tokens are deleted server-side). */
+export async function disconnectGoogle(): Promise<void> {
+  const response = await authedFetch("/api/connections/google", { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(`Disconnect failed: ${response.status}`);
+  }
+}

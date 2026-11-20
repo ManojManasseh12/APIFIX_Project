@@ -61,6 +61,8 @@ export type ConnectionTool = {
   write: boolean;
   /** false → planned but not callable yet. */
   available: boolean;
+  /** Google only: which app the tool belongs to. */
+  app?: "calendar" | "gmail";
 };
 
 /**
@@ -79,8 +81,24 @@ export type GitHubConnection = {
   tools: ConnectionTool[];
 };
 
+/**
+ * Google connection state (Calendar + Gmail share one OAuth grant).
+ * connected = the backend holds an encrypted grant for this user.
+ */
+export type GoogleConnection = {
+  configured: boolean;
+  connected: boolean;
+  account: string | null;
+  expires_at: string | null;
+  error: string | null;
+  tools: ConnectionTool[];
+  apps: string[];
+  scopes: string[];
+};
+
 export type ConnectionsResponse = {
   github: GitHubConnection;
+  google: GoogleConnection;
 };
 
 export type Patch = {

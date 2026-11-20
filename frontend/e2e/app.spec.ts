@@ -232,6 +232,16 @@ test("connections sidebar lists MCP apps and stays honest about preview", async 
           error: null,
           tools: [],
         },
+        google: {
+          configured: false,
+          connected: false,
+          account: null,
+          expires_at: null,
+          error: null,
+          tools: [],
+          apps: ["calendar", "gmail"],
+          scopes: [],
+        },
       },
     })
   );
@@ -318,4 +328,92 @@ test("connections sidebar shows a verified GitHub connection", async ({ page }) 
   await expect(page.getByText("⚠ needs approval").first()).toBeVisible();
   await expect(page.getByText("Default repo:")).toBeVisible();
   await expect(page.getByText("octocat/Hello-World")).toBeVisible();
+});
+
+test("connections sidebar shows a connected Google account", async ({ page }) => {
+  await page.route("**/api/connections", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        github: {
+          configured: true,
+          connected: false,
+          account: null,
+          name: null,
+          avatar_url: null,
+          default_repo: null,
+          source: "personal_access_token",
+          error: null,
+          tools: [],
+        },
+        google: {
+          configured: true,
+          connected: true,
+          account: "me@example.com",
+          expires_at: "2026-11-20T12:00:00+00:00",
+          error: null,
+          apps: ["calendar", "gmail"],
+          scopes: [],
+          tools: [
+            {
+              app: "calendar",
+              name: "list_events",
+              description: "List events in a date range",
+              write: false,
+              available: true,
+            },
+            {
+              app: "calendar",
+              name: "create_event",
+              description: "Schedule a new event",
+              write: true,
+              available: false,
+            },
+            {
+              app: "gmail",
+              name: "search_threads",
+              description: "Search mail with Gmail query syntax",
+              write: false,
+              available: true,
+            },
+            {
+              app: "gmail",
+              name: "create_draft",
+              description: "Create a draft email",
+              write: true,
+              available: false,
+            },
+          ],
+        },
+      },
+    })
+  );
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ask API" }).click();
+
+  // Both Google apps share the one OAuth grant, so both read Connected.
+  await expect(page.getByText("me@example.com").first()).toBeVisible();
+  await expect(page.getByText("Connected").first()).toBeVisible();
+
+  // Calendar detail: only calendar tools, live badge, real disconnect button.
+  await page.getByRole("button", { name: /Google Calendar/ }).first().click();
+  await expect(
+    page.getByRole("button", { name: /Connected as me@example\.com/ })
+  ).toBeDisabled();
+  await expect(page.getByText("list_events")).toBeVisible();
+  await expect(page.getByText("live").first()).toBeVisible();
+  await expect(page.getByText("create_event")).toBeVisible();
+  await expect(page.getByText("⚠ needs approval").first()).toBeVisible();
+  await expect(page.getByText("search_threads")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Disconnect Google" })
+  ).toBeVisible();
+
+  // Gmail detail: its own tools only.
+  await page.getByRole("button", { name: "← All apps" }).click();
+  await page.getByRole("button", { name: /Gmail/ }).first().click();
+  await expect(page.getByText("search_threads")).toBeVisible();
+  await expect(page.getByText("list_events")).toHaveCount(0);
+  await expect(page.getByText("create_draft")).toBeVisible();
 });

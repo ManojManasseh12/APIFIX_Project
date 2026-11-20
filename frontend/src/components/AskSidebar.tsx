@@ -5,6 +5,7 @@ import type {
   ConnectionTool,
   ConnectionsResponse,
   GitHubConnection,
+  GoogleConnection,
 } from "../types";
 
 /**
@@ -14,9 +15,10 @@ import type {
  * Mobile:  a slide-in drawer with a dimmed backdrop (closed by the
  *          backdrop, the toggle, or Escape).
  *
- * Honest by design: GitHub's badge and Connect button reflect the real
- * state reported by GET /api/connections. Nothing is ever shown as
- * "Connected" unless the backend verified the token with GitHub.
+ * Honest by design: badges and buttons reflect the real state reported by
+ * GET /api/connections. Nothing is shown as "Connected" unless the backend
+ * verified it with the provider, and nothing pretends to be wired when it
+ * is not.
  */
 export function AskSidebar({
   open,
@@ -24,17 +26,24 @@ export function AskSidebar({
   onClose,
   connections,
   connectionsError,
+  onConnectGoogle,
+  onDisconnectGoogle,
+  googleBusy,
 }: {
   open: boolean;
   onToggle: () => void;
   onClose: () => void;
   connections: ConnectionsResponse | null;
   connectionsError: string | null;
+  onConnectGoogle: () => void;
+  onDisconnectGoogle: () => void;
+  googleBusy: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const github = connections?.github ?? null;
+  const google = connections?.google ?? null;
   const githubApp = MCP_APPS.find((app) => app.id === "github") ?? MCP_APPS[0];
   const statusUnavailable = !connections && Boolean(connectionsError);
   const selected = MCP_APPS.find((app) => app.id === selectedId) ?? null;
@@ -64,20 +73,55 @@ export function AskSidebar({
     if (!open) onToggle(); // collapsed rail → expand so the detail fits
   }
 
+  function isGoogleApp(app: McpApp): boolean {
+    return app.id === "google-calendar" || app.id === "gmail";
+  }
+
+  function isConnected(app: McpApp): boolean {
+    if (app.id === "github") return Boolean(github?.connected);
+    if (isGoogleApp(app)) return Boolean(google?.connected);
+    return false;
+  }
+
+  function providerError(app: McpApp): string | null {
+    if (app.id === "github") return github?.error ?? null;
+    if (isGoogleApp(app)) return google?.error ?? null;
+    return null;
+  }
+
   function badgeFor(app: McpApp): { label: string; className: string } {
-    if (app.id === "github" && github?.connected) {
+    if (isConnected(app)) {
       return {
         label: "Connected",
         className: "border-emerald-200 bg-emerald-50 text-emerald-700",
       };
     }
-    if (app.id === "github" && github?.error) {
+    if (providerError(app)) {
       return {
         label: "Error",
         className: "border-amber-200 bg-amber-50 text-amber-700",
       };
     }
     return { label: statusLabel(app.status), className: statusBadgeClass(app.status) };
+  }
+
+  function accountFor(app: McpApp): string | null {
+    if (app.id === "github") return github?.account ? `@${github.account}` : null;
+    if (isGoogleApp(app)) return google?.account ?? null;
+    return null;
+  }
+
+  const connectedApps = filtered.filter((app) => isConnected(app));
+
+  function emptyConnectedCopy(): string {
+    if (statusUnavailable) return "Connection status unavailable — is the backend running?";
+    if (github?.error || google?.error) {
+      return "A connection needs attention. Open the app for details.";
+    }
+    if (github?.configured || google?.configured) {
+      return "No apps connected yet. Open an app below to connect it.";
+    }
+    return "No apps connected yet. Add GITHUB_PAT or Google OAuth credentials to the backend .env.";
   }
 
   return (
@@ -125,7 +169,11 @@ export function AskSidebar({
             app={selected}
             onBack={() => setSelectedId(null)}
             github={github}
+            google={google}
             statusUnavailable={statusUnavailable}
+            onConnectGoogle={onConnectGoogle}
+            onDisconnectGoogle={onDisconnectGoogle}
+            googleBusy={googleBusy}
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
@@ -144,33 +192,35 @@ export function AskSidebar({
               <p className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 Connected
               </p>
-              {github?.connected ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedId("github")}
-                  className="mt-1.5 flex w-full items-center gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/50 px-2 py-2 text-left transition-colors hover:bg-emerald-50"
-                >
-                  <AppIcon app={githubApp} size="sm" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-semibold text-slate-800">
-                      GitHub
-                    </span>
-                    <span className="block truncate text-[10px] text-slate-500">
-                      @{github.account}
-                    </span>
-                  </span>
-                  <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
-                    Connected
-                  </span>
-                </button>
-              ) : (
+              {connectedApps.length === 0 ? (
                 <p className="mt-1.5 rounded-xl border border-dashed border-slate-200 px-2.5 py-2 text-[11px] leading-snug text-slate-500">
-                  {statusUnavailable
-                    ? "Connection status unavailable — is the backend running?"
-                    : github?.configured
-                      ? "GitHub token found, but GitHub did not accept it. Open GitHub for details."
-                      : "No apps connected yet. Add GITHUB_PAT to the backend .env to connect GitHub."}
+                  {emptyConnectedCopy()}
                 </p>
+              ) : (
+                <ul className="mt-1.5 space-y-1">
+                  {connectedApps.map((app) => (
+                    <li key={app.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(app.id)}
+                        className="flex w-full items-center gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/50 px-2 py-2 text-left transition-colors hover:bg-emerald-50"
+                      >
+                        <AppIcon app={app} size="sm" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[11px] font-semibold text-slate-800">
+                            {app.name}
+                          </span>
+                          <span className="block truncate text-[10px] text-slate-500">
+                            {accountFor(app) ?? app.tagline}
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
+                          Connected
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
 
               <p className="mt-4 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -184,7 +234,7 @@ export function AskSidebar({
                 <ul className="mt-1.5 space-y-1">
                   {filtered
                     // A connected app is listed once, under Connected.
-                    .filter((app) => !(app.id === "github" && github?.connected))
+                    .filter((app) => !isConnected(app))
                     .map((app) => {
                       const badge = badgeFor(app);
                       return (
@@ -200,9 +250,7 @@ export function AskSidebar({
                                 {app.name}
                               </span>
                               <span className="block truncate text-[10px] text-slate-500">
-                                {app.id === "github" && github?.connected
-                                  ? `@${github.account}`
-                                  : app.tagline}
+                                {app.tagline}
                               </span>
                             </span>
                             <span
@@ -221,11 +269,11 @@ export function AskSidebar({
             <p className="border-t border-slate-100 px-4 py-2.5 text-[10px] leading-snug text-slate-400">
               {statusUnavailable
                 ? "Connection status unavailable — start the backend to see real state."
-                : github?.connected
-                  ? "GitHub is connected via a server-side token. Ask tools are read-only for now."
-                  : github?.configured
-                    ? "GitHub token found but not verified — open GitHub for details."
-                    : "Preview — add GITHUB_PAT to the backend .env to connect GitHub."}
+                : github?.connected || google?.connected
+                  ? "Read-only tools only. Write actions need explicit approval."
+                  : github?.configured || google?.configured
+                    ? "Open an app to connect it. Credentials are configured on the backend."
+                    : "Preview — add provider credentials to the backend .env."}
             </p>
           </div>
         )}
@@ -255,15 +303,15 @@ export function AskSidebar({
             type="button"
             onClick={() => pick(app.id)}
             title={
-              app.id === "github" && github?.connected
-                ? `GitHub · connected as @${github.account}`
+              isConnected(app)
+                ? `${app.name} · connected${accountFor(app) ? ` as ${accountFor(app)}` : ""}`
                 : app.name
             }
             aria-label={`Open ${app.name}`}
             className="relative rounded-xl p-1 transition hover:bg-slate-50"
           >
             <AppIcon app={app} size="sm" />
-            {app.id === "github" && github?.connected && (
+            {isConnected(app) && (
               <span
                 className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white"
                 aria-hidden="true"
@@ -321,30 +369,50 @@ function AppDetail({
   app,
   onBack,
   github,
+  google,
   statusUnavailable,
+  onConnectGoogle,
+  onDisconnectGoogle,
+  googleBusy,
 }: {
   app: McpApp;
   onBack: () => void;
   github: GitHubConnection | null;
+  google: GoogleConnection | null;
   statusUnavailable: boolean;
+  onConnectGoogle: () => void;
+  onDisconnectGoogle: () => void;
+  googleBusy: boolean;
 }) {
   const isGithub = app.id === "github";
+  const googleApp = app.id === "google-calendar" ? "calendar" : app.id === "gmail" ? "gmail" : null;
+  const isGoogle = googleApp !== null;
+
   const tools: ConnectionTool[] =
     isGithub && github?.tools?.length
       ? github.tools
-      : app.tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          write: Boolean(tool.write),
-          available: !tool.write,
-        }));
+      : isGoogle && google?.tools?.length
+        ? google.tools.filter((tool) => tool.app === googleApp)
+        : app.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            write: Boolean(tool.write),
+            available: !tool.write,
+          }));
 
-  const status = isGithub && github?.connected
+  const connected = isGithub ? Boolean(github?.connected) : Boolean(google?.connected);
+  const providerError = isGithub ? github?.error : isGoogle ? google?.error : null;
+  const rawAccount = isGithub ? github?.account : google?.account;
+  // GitHub accounts read as @handle everywhere in the UI.
+  const account = rawAccount ? (isGithub ? `@${rawAccount}` : rawAccount) : null;
+  const configured = isGithub ? Boolean(github?.configured) : Boolean(google?.configured);
+
+  const status = connected
     ? {
         label: "Connected",
         className: "border-emerald-200 bg-emerald-50 text-emerald-700",
       }
-    : isGithub && github?.error
+    : providerError
       ? {
           label: "Error",
           className: "border-amber-200 bg-amber-50 text-amber-700",
@@ -369,7 +437,7 @@ function AppDetail({
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-slate-900">{app.name}</p>
           <p className="truncate text-[11px] text-slate-500">
-            {isGithub && github?.connected ? `@${github.account}` : app.tagline}
+            {connected && account ? account : app.tagline}
           </p>
         </div>
       </div>
@@ -413,7 +481,7 @@ function AppDetail({
                   >
                     ⚠ needs approval
                   </span>
-                ) : isGithub && github?.connected && tool.available ? (
+                ) : connected && tool.available ? (
                   <span
                     className="ml-1.5 rounded bg-emerald-100 px-1 py-0.5 font-sans text-[9px] font-semibold text-emerald-700"
                     title="Callable now from the Ask tab"
@@ -431,67 +499,88 @@ function AppDetail({
       </div>
 
       <div className="mt-3 border-t border-slate-100 pt-3">
-        {isGithub ? (
-          github?.connected ? (
-            <>
+        {connected ? (
+          <>
+            <button
+              type="button"
+              disabled
+              className="w-full cursor-default rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white"
+            >
+              ✓ Connected{account ? ` as ${account}` : ""}
+            </button>
+            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+              {isGoogle
+                ? "Google tokens are stored encrypted. Read-only in Ask — write actions need the approval flow."
+                : "Using the server-side GITHUB_PAT. Read-only in Ask — write actions need the approval flow."}
+            </p>
+            {isGoogle && (
               <button
                 type="button"
-                disabled
-                className="w-full cursor-default rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white"
+                onClick={onDisconnectGoogle}
+                disabled={googleBusy}
+                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-semibold text-slate-500 transition hover:border-rose-200 hover:text-rose-600 disabled:opacity-50"
               >
-                ✓ Connected as @{github.account}
+                Disconnect Google
               </button>
-              <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                Using the server-side GITHUB_PAT. Read-only in Ask — write
-                actions need the approval flow.
-              </p>
-            </>
-          ) : github?.configured ? (
-            <>
-              <button
-                type="button"
-                disabled
-                className="w-full cursor-not-allowed rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-bold text-white opacity-70"
-              >
-                Reconnect needed
-              </button>
-              <p className="mt-1.5 text-[10px] leading-snug text-amber-700">
-                {github.error ?? "GitHub did not accept the token."}
-              </p>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                disabled
-                title={
-                  statusUnavailable
-                    ? "Connection status unavailable — is the backend running?"
-                    : "Add GITHUB_PAT to the backend .env, then restart the backend"
-                }
-                className="w-full cursor-not-allowed rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white opacity-50"
-              >
-                Connect
-              </button>
-              <p className="mt-1.5 text-[10px] leading-snug text-slate-400">
-                {statusUnavailable
-                  ? "Connection status unavailable — start the backend, then refresh this page."
-                  : "Add GITHUB_PAT to the backend .env, then restart the backend."}
-              </p>
-            </>
-          )
+            )}
+          </>
+        ) : providerError ? (
+          <>
+            <button
+              type="button"
+              onClick={isGoogle ? onConnectGoogle : undefined}
+              disabled={!isGoogle || googleBusy}
+              className="w-full cursor-not-allowed rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-bold text-white opacity-70"
+            >
+              {isGoogle ? "Reconnect with Google" : "Reconnect needed"}
+            </button>
+            <p className="mt-1.5 text-[10px] leading-snug text-amber-700">
+              {providerError}
+            </p>
+          </>
+        ) : isGoogle ? (
+          <>
+            <button
+              type="button"
+              onClick={onConnectGoogle}
+              disabled={!configured || googleBusy || statusUnavailable}
+              title={
+                statusUnavailable
+                  ? "Connection status unavailable — is the backend running?"
+                  : configured
+                    ? "Open Google's consent screen"
+                    : "Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and MCP_TOKEN_ENCRYPTION_KEY to the backend .env"
+              }
+              className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {googleBusy ? "Opening Google…" : "Connect with Google"}
+            </button>
+            <p className="mt-1.5 text-[10px] leading-snug text-slate-400">
+              {statusUnavailable
+                ? "Connection status unavailable — start the backend, then refresh this page."
+                : configured
+                  ? "Read-only access to Calendar and Gmail. You can disconnect at any time."
+                  : "Google OAuth is not configured on the backend yet."}
+            </p>
+          </>
         ) : (
           <>
             <button
               type="button"
               disabled
-              title="This app is not wired to a backend yet"
+              title={
+                statusUnavailable
+                  ? "Connection status unavailable — is the backend running?"
+                  : "Add GITHUB_PAT to the backend .env, then restart the backend"
+              }
               className="w-full cursor-not-allowed rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white opacity-50"
             >
               Connect
             </button>
             <p className="mt-1.5 text-[10px] leading-snug text-slate-400">
-              Preview only — this app is not wired to a backend yet.
+              {statusUnavailable
+                ? "Connection status unavailable — start the backend, then refresh this page."
+                : "Add GITHUB_PAT to the backend .env, then restart the backend."}
             </p>
           </>
         )}

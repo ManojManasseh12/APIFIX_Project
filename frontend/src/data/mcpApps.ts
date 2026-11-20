@@ -1,14 +1,14 @@
 /**
  * Static catalog of MCP apps shown in the Ask tab's Connections sidebar.
  *
- * UI-only in this phase: nothing here connects to a real MCP server yet.
- * The statuses are honest —
- *   "preview"     → we plan to wire these first, Connect is disabled;
- *   "coming_soon" → no integration exists at all.
+ * The catalog only supplies identity (name, icon, tagline) and a fallback
+ * tool list. Live state — connected/error, real tools — comes from
+ * GET /api/connections, so nothing here claims a connection that does not
+ * exist.
  *
- * When the backend MCP client ships, `tools` will be replaced by the
- * server's real `list_tools` response and Connect becomes a real OAuth
- * flow; the UI shape stays the same.
+ * Statuses:
+ *   "preview"     → wired to a backend connector (GitHub, Google);
+ *   "coming_soon" → no integration exists at all.
  */
 
 export type McpTool = {
@@ -60,7 +60,7 @@ export const MCP_APPS: McpApp[] = [
     icon: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
     tools: [
       { name: "list_events", description: "List events in a date range" },
-      { name: "find_free_slots", description: "Find open time on a calendar" },
+      { name: "search_events", description: "Search events by title or attendee" },
       { name: "create_event", description: "Schedule a new event", write: true },
     ],
   },
@@ -70,13 +70,13 @@ export const MCP_APPS: McpApp[] = [
     tagline: "Mail and threads",
     category: "communication",
     auth: "oauth",
-    status: "coming_soon",
+    status: "preview",
     tint: "bg-rose-50 text-rose-700",
     icon: "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM22 7l-10 6L2 7",
     tools: [
-      { name: "search_messages", description: "Search mail by sender or text" },
-      { name: "read_message", description: "Read one message or thread" },
-      { name: "send_email", description: "Send a new email", write: true },
+      { name: "search_threads", description: "Search mail with Gmail query syntax" },
+      { name: "get_message", description: "Read one message" },
+      { name: "create_draft", description: "Create a draft email", write: true },
     ],
   },
   {

@@ -15,3 +15,9 @@ os.environ["SUPABASE_AUTH_JWKS_URL"] = ""
 # token. Individual tests set a fake token and mock the HTTP transport.
 os.environ["GITHUB_PAT"] = ""
 os.environ["GITHUB_DEFAULT_REPO"] = ""
+
+# Google Workspace MCP: same rule. Tests that exercise the connector set
+# these on the settings object and mock the network.
+os.environ["GOOGLE_CLIENT_ID"] = ""
+os.environ["GOOGLE_CLIENT_SECRET"] = ""
+os.environ["MCP_TOKEN_ENCRYPTION_KEY"] = ""

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { authedFetch, getConnections } from "../lib/api";
+import { authedFetch, disconnectGoogle, getConnections, startGoogleConnect } from "../lib/api";
 import { streamAsk } from "../lib/sse";
 import { AskSidebar } from "./AskSidebar";
 import type {
@@ -148,6 +148,11 @@ export function AskPanel() {
   // Real connection state from the backend — never assumed by the UI.
   const [connections, setConnections] = useState<ConnectionsResponse | null>(null);
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  // Result of the OAuth round trip (?google=connected|error&message=…).
+  const [connectNotice, setConnectNotice] = useState<
+    { kind: "ok" | "error"; text: string } | null
+  >(null);
   // Cancel the in-flight stream if the panel unmounts mid-answer.
   const streamAbortRef = useRef<AbortController | null>(null);
   // One id per chat session so persisted turns can be grouped later.
@@ -186,8 +191,63 @@ export function AskPanel() {
 
   useEffect(() => {
     void refreshAskHistory();
+
+    // The Google callback redirects back with ?google=connected or
+    // ?google=error&message=… — show it, refresh state, then clean the URL.
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("google");
+    if (outcome) {
+      setConnectNotice(
+        outcome === "connected"
+          ? { kind: "ok", text: "Google connected. Calendar and Gmail tools are live." }
+          : {
+              kind: "error",
+              text: params.get("message") || "Google connection failed.",
+            }
+      );
+      params.delete("google");
+      params.delete("message");
+      const query = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${query ? `?${query}` : ""}`
+      );
+    }
+
     void refreshConnections();
   }, []);
+
+  async function connectGoogle() {
+    setGoogleBusy(true);
+    setConnectNotice(null);
+    try {
+      window.location.href = await startGoogleConnect();
+    } catch (err) {
+      setConnectNotice({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not start the Google sign-in.",
+      });
+      setGoogleBusy(false);
+    }
+  }
+
+  async function disconnectGoogleAccount() {
+    setGoogleBusy(true);
+    setConnectNotice(null);
+    try {
+      await disconnectGoogle();
+      setConnectNotice({ kind: "ok", text: "Google disconnected." });
+      await refreshConnections();
+    } catch (err) {
+      setConnectNotice({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not disconnect Google.",
+      });
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
 
   // Remember the sidebar state across reloads.
   useEffect(() => {
@@ -382,6 +442,9 @@ export function AskPanel() {
           onClose={() => setConnectionsOpen(false)}
           connections={connections}
           connectionsError={connectionsError}
+          onConnectGoogle={() => void connectGoogle()}
+          onDisconnectGoogle={() => void disconnectGoogleAccount()}
+          googleBusy={googleBusy}
         />
         <div className="grid min-w-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-12">
           <section className="flex min-h-[70vh] flex-col rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-xs lg:col-span-8">
@@ -425,6 +488,27 @@ export function AskPanel() {
             )}
           </div>
         </div>
+
+        {connectNotice && (
+          <div
+            role="status"
+            className={`mt-3 flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-[11px] leading-snug ${
+              connectNotice.kind === "ok"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-amber-200 bg-amber-50 text-amber-800"
+            }`}
+          >
+            <span>{connectNotice.text}</span>
+            <button
+              type="button"
+              onClick={() => setConnectNotice(null)}
+              aria-label="Dismiss"
+              className="shrink-0 text-slate-400 transition hover:text-slate-700"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-1">
           {messages.length === 0 && (

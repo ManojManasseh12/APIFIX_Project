@@ -89,6 +89,20 @@ class Settings(BaseSettings):
     github_default_repo: str = ""
     github_api_url: str = "https://api.github.com"
 
+    # Google Workspace MCP (Ask tab): Calendar + Gmail through Google's
+    # official remote MCP servers. OAuth 2.0 per user; the refresh tokens
+    # are encrypted with MCP_TOKEN_ENCRYPTION_KEY before storage.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = (
+        "http://localhost:8000/api/connections/google/callback"
+    )
+    google_oauth_auth_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    google_oauth_token_url: str = "https://oauth2.googleapis.com/token"
+    google_calendar_mcp_url: str = "https://calendarmcp.googleapis.com/mcp/v1"
+    google_gmail_mcp_url: str = "https://gmailmcp.googleapis.com/mcp/v1"
+    mcp_token_encryption_key: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         """Origins the API allows browser calls from.

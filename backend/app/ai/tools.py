@@ -277,4 +277,36 @@ def format_tool_result(tool_name: str, result: dict) -> str:
         if not items:
             return head + "."
         return head + ": " + "; ".join(item.get("repo") or "?" for item in items[:8])
+    if tool_name in ("gcal_events", "gcal_search"):
+        events = result.get("events") or []
+        when = {
+            "today": "today",
+            "tomorrow": "tomorrow",
+            "next_week": "next week",
+            "month": "the next 30 days",
+        }.get(str(result.get("range")), "the next 7 days")
+        head = f"{len(events)} event{'' if len(events) == 1 else 's'} on {result.get('calendar') or 'the primary calendar'} for {when}"
+        if result.get("query"):
+            head += f' matching “{result["query"]}”'
+        if not events:
+            return head + "."
+        lines = []
+        for event in events[:8]:
+            start = str(event.get("start") or "")
+            if "T" in start:
+                start = start.replace("T", " ")[:16]
+            where = f" at {event['location']}" if event.get("location") else ""
+            lines.append(f"{start} — {event.get('title')}{where}")
+        return head + ": " + "; ".join(lines)
+    if tool_name == "gmail_search":
+        threads = result.get("threads") or []
+        head = f"{len(threads)} thread{'' if len(threads) == 1 else 's'} for “{result.get('query')}”"
+        if not threads:
+            return head + "."
+        lines = [
+            f"{thread.get('date') or '?'} — {thread.get('subject') or '(no subject)'}"
+            + (f" (from {thread['from']})" if thread.get("from") else "")
+            for thread in threads[:8]
+        ]
+        return head + ": " + "; ".join(lines)
     return json.dumps(result, ensure_ascii=False)
