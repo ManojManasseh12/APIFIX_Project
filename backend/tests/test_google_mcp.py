@@ -1,8 +1,11 @@
 """Google Workspace MCP: OAuth, token storage, routing, and honest errors."""
 
 import asyncio
+import base64
+import json
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
@@ -22,6 +25,8 @@ def clean_google(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "google_client_secret", "")
     monkeypatch.setattr(settings, "mcp_token_encryption_key", "")
     monkeypatch.setattr(settings, "runs_db", tmp_path / "runs.sqlite3")
+    # REST is the production default; MCP tests opt in explicitly.
+    monkeypatch.setattr(settings, "google_connector_mode", "rest")
     monkeypatch.setattr(
         settings,
         "google_redirect_uri",
@@ -126,6 +131,38 @@ async def test_tokens_are_stored_encrypted_and_read_back(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_account_email_survives_a_token_refresh(monkeypatch):
+    """A refresh response has no id_token, so the email must be kept."""
+    configure(monkeypatch)
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"email": "me@example.com"}).encode()
+    ).decode().rstrip("=")
+
+    await google.save_connection(
+        "user-1",
+        {
+            "access_token": "first",
+            "refresh_token": "1//refresh",
+            "expires_in": 3600,
+            "id_token": f"header.{payload}.signature",
+        },
+    )
+    # Simulates what _refresh sends: new access token, no id_token.
+    await google.save_connection(
+        "user-1",
+        {
+            "access_token": "second",
+            "refresh_token": "1//refresh",
+            "expires_in": 3600,
+        },
+    )
+
+    record = await asyncio.to_thread(store.get, "user-1", "google")
+    assert record["account_email"] == "me@example.com"
+    assert record["access_token"] == "second"
+
+
+@pytest.mark.asyncio
 async def test_expired_access_token_is_refreshed(monkeypatch):
     configure(monkeypatch)
     monkeypatch.setattr(
@@ -170,6 +207,7 @@ async def test_not_connected_is_a_clear_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_events_normalises_the_mcp_payload(monkeypatch):
     configure(monkeypatch)
+    monkeypatch.setattr(settings, "google_connector_mode", "mcp")
     calls = []
 
     async def fake_call(server_url, token, tool_name, arguments):
@@ -213,6 +251,7 @@ async def _token() -> str:
 @pytest.mark.asyncio
 async def test_search_threads_uses_gmail_query(monkeypatch):
     configure(monkeypatch)
+    monkeypatch.setattr(settings, "google_connector_mode", "mcp")
     calls = []
 
     async def fake_call(server_url, token, tool_name, arguments):
@@ -253,6 +292,7 @@ async def test_search_threads_uses_gmail_query(monkeypatch):
 @pytest.mark.asyncio
 async def test_write_tool_is_blocked_before_any_network_call(monkeypatch):
     configure(monkeypatch)
+    monkeypatch.setattr(settings, "google_connector_mode", "mcp")
 
     async def explode(*args, **kwargs):  # pragma: no cover - must not run
         raise AssertionError("write tool reached the network")
@@ -260,6 +300,157 @@ async def test_write_tool_is_blocked_before_any_network_call(monkeypatch):
     monkeypatch.setattr(google.client, "call_tool", explode)
     with pytest.raises(google.GoogleError, match="read-only"):
         await google._call("user-1", settings.google_calendar_mcp_url, "create_event", {})
+
+
+# ── REST transport (the default) ─────────────────────────────────────────────
+
+def test_unknown_transport_falls_back_to_rest(monkeypatch):
+    monkeypatch.setattr(settings, "google_connector_mode", "banana")
+    assert google.connector_mode() == "rest"
+
+
+def test_only_implemented_tools_are_marked_live(monkeypatch):
+    monkeypatch.setattr(settings, "google_connector_mode", "rest")
+    rest = {tool["name"]: tool["available"] for tool in google.available_tools()}
+    assert rest["list_events"] is True
+    assert rest["search_threads"] is True
+    # Listed, but not implemented over REST yet — must not claim "live".
+    assert rest["suggest_time"] is False
+    assert rest["list_labels"] is False
+    # Write tools are never available.
+    assert rest["create_event"] is False
+
+    monkeypatch.setattr(settings, "google_connector_mode", "mcp")
+    mcp = {tool["name"]: tool["available"] for tool in google.available_tools()}
+    assert mcp["suggest_time"] is True
+    assert mcp["create_event"] is False
+
+
+@pytest.mark.asyncio
+async def test_rest_events_use_the_calendar_api(monkeypatch):
+    configure(monkeypatch)
+    calls = []
+
+    async def fake_get(url, token, params, api):
+        calls.append((url, token, params, api))
+        return {
+            "summary": "Manoj",
+            "items": [
+                {
+                    "summary": "Standup",
+                    "start": {"dateTime": "2026-11-23T09:00:00+05:30"},
+                    "end": {"dateTime": "2026-11-23T09:15:00+05:30"},
+                    "location": "Zoom",
+                    "attendees": [{"email": "a@example.com"}],
+                    "htmlLink": "https://calendar.google.com/x",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(google, "_api_get", fake_get)
+    monkeypatch.setattr(
+        google, "access_token", lambda user_id, force_refresh=False: _token()
+    )
+
+    result = await google.list_events("user-1", {"range": "today"})
+
+    assert result["count"] == 1
+    assert result["calendar"] == "Manoj"
+    assert result["events"][0]["title"] == "Standup"
+    assert result["events"][0]["start"] == "2026-11-23T09:00:00+05:30"
+    url, token, params, api = calls[0]
+    assert url.endswith("/calendars/primary/events")
+    assert api == "Calendar"
+    assert params["singleEvents"] == "true"
+    assert params["orderBy"] == "startTime"
+    # The REST API requires an offset; the MCP server does not.
+    assert params["timeMin"].endswith(("+05:30", "Z")) or "+" in params["timeMin"]
+
+
+@pytest.mark.asyncio
+async def test_rest_threads_read_metadata_headers(monkeypatch):
+    configure(monkeypatch)
+    calls = []
+
+    async def fake_get(url, token, params, api):
+        calls.append((url, params))
+        if url.endswith("/threads"):
+            return {"threads": [{"id": "t1"}, {"id": "t2"}], "resultSizeEstimate": 2}
+        thread_id = url.rsplit("/", 1)[-1]
+        return {
+            "snippet": "hello",
+            "messages": [
+                {
+                    "snippet": "hello",
+                    "payload": {
+                        "headers": [
+                            {"name": "Subject", "value": f"Subject {thread_id}"},
+                            {"name": "From", "value": "billing@stripe.com"},
+                            {"name": "Date", "value": "Mon, 23 Nov 2026 09:00:00 +0530"},
+                        ]
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(google, "_api_get", fake_get)
+    monkeypatch.setattr(
+        google, "access_token", lambda user_id, force_refresh=False: _token()
+    )
+
+    result = await google.search_threads(
+        "user-1", {"query": "is:unread in:inbox", "limit": 5}
+    )
+
+    assert result["count"] == 2
+    assert result["estimate"] == 2
+    subjects = {thread["subject"] for thread in result["threads"]}
+    assert subjects == {"Subject t1", "Subject t2"}
+    assert result["threads"][0]["from"] == "billing@stripe.com"
+    url, params = calls[0]
+    assert url.endswith("/users/me/threads")
+    assert params == {"q": "is:unread in:inbox", "maxResults": 5}
+    # Thread details ask for metadata only — no message bodies.
+    assert calls[1][1]["format"] == "metadata"
+    assert "Subject" in calls[1][1]["metadataHeaders"]
+
+
+@pytest.mark.asyncio
+async def test_rest_401_triggers_one_refresh(monkeypatch):
+    configure(monkeypatch)
+    tokens = []
+
+    async def fake_get(url, token, params, api):
+        tokens.append(token)
+        if token == "stale":
+            raise google.GoogleAuthError("401")
+        return {"items": []}
+
+    async def fake_access(user_id, force_refresh=False):
+        return "fresh" if force_refresh else "stale"
+
+    monkeypatch.setattr(google, "_api_get", fake_get)
+    monkeypatch.setattr(google, "access_token", fake_access)
+
+    result = await google.list_events("user-1", {"range": "week"})
+
+    assert result["count"] == 0
+    assert tokens == ["stale", "fresh"]
+
+
+def test_disabled_api_error_is_actionable():
+    response = httpx.Response(
+        403,
+        json={
+            "error": {
+                "message": "Gmail API has not been used in project 1 before or it is disabled.",
+                "details": [{"reason": "accessNotConfigured"}],
+            }
+        },
+    )
+    error = google._api_error(response, "Gmail")
+    assert "not enabled" in str(error)
+    assert "Gmail" in str(error)
 
 
 # ── Router ───────────────────────────────────────────────────────────────────
@@ -287,6 +478,41 @@ async def test_gmail_question_builds_gmail_syntax():
     query = decision.args["query"]
     assert "is:unread" in query
     assert "from:billing@stripe.com" in query
+
+
+@pytest.mark.asyncio
+async def test_plain_mail_wording_routes_to_gmail():
+    # "mail" alone must count — this is how people actually ask.
+    decision = await route_question("check my mail that comes today")
+    assert decision.route == "tool:gmail_search"
+    query = decision.args["query"]
+    assert "newer_than:1d" in query
+    assert "in:inbox" in query
+
+
+@pytest.mark.asyncio
+async def test_sent_mail_uses_the_sent_folder():
+    decision = await route_question("show my sent emails")
+    assert decision.route == "tool:gmail_search"
+    assert "in:sent" in decision.args["query"]
+
+
+@pytest.mark.asyncio
+async def test_product_api_wording_stays_in_rag():
+    for question in (
+        "how do I send mail with the Gmail API?",
+        "what does the Google Calendar API do?",
+        "which OAuth scopes does Gmail need?",
+    ):
+        decision = await route_question(question)
+        assert decision.route == "rag", question
+
+
+@pytest.mark.asyncio
+async def test_third_party_api_mentioned_in_a_mail_question_is_still_mail():
+    decision = await route_question("find emails about the Stripe API")
+    assert decision.route == "tool:gmail_search"
+    assert decision.args["query"] == '"Stripe API"'
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { authedFetch, disconnectGoogle, getConnections, startGoogleConnect } from "../lib/api";
 import { streamAsk } from "../lib/sse";
 import { AskSidebar } from "./AskSidebar";
+import { AskActivityIndicator, LiveToolBadge } from "./AskActivity";
 import type {
   AskMessage,
   AskTurnSummary,
@@ -121,7 +122,21 @@ export function AskPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
-  const [toolCall, setToolCall] = useState<string | null>(null);
+  // What the running tool is doing (name + chip label), shown in the bubble.
+  const [activeTool, setActiveTool] = useState<{
+    name: string;
+    label: string | null;
+  } | null>(null);
+  // Coarse phase for the activity line before a tool is chosen.
+  const [phase, setPhase] = useState<"thinking" | "docs" | "tool">("thinking");
+  // Index of the assistant message currently being streamed (null when idle).
+  const [streamingIndex, setStreamingIndex] = useState<number | null>(null);
+  // Regenerations per assistant message — ChatGPT-like, capped at 2.
+  const [regenCounts, setRegenCounts] = useState<Record<number, number>>({});
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  // Inline editor for a sent question (pencil icon on the user bubble).
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
   const [latestSources, setLatestSources] = useState<Citation[]>([]);
   // When the latest answer came from a live tool, the sources panel explains
   // that instead of showing documentation chunks.
@@ -259,43 +274,116 @@ export function AskPanel() {
   }, [connectionsOpen]);
 
   async function ask(question: string) {
+    await runAsk(question);
+  }
+
+  /**
+   * Send one question. With ``replaceIndex`` the answer is streamed back into
+   * that existing assistant message (Regenerate); without it a new user +
+   * assistant pair is appended.
+   */
+  async function runAsk(question: string, replaceIndex?: number) {
     const trimmed = question.trim();
     if (!trimmed || busy) return;
 
-    streamAbortRef.current?.abort();
-    const controller = new AbortController();
-    streamAbortRef.current = controller;
-
+    // The assistant message that receives the tokens.
+    const assistantIndex = replaceIndex ?? messages.length + 1;
+    // Regenerating must not send the question twice (it is already at
+    // replaceIndex - 1), so history stops before it.
+    const historyEnd =
+      replaceIndex === undefined ? messages.length : Math.max(0, replaceIndex - 1);
     const history = messages
+      .slice(0, historyEnd)
       .filter((message) => message.content.trim())
       .slice(-4)
       .map((message) => ({ role: message.role, content: message.content }));
 
-    setMessages((prev) => [
-      ...prev,
+    setMessages((prev) => {
+      const next = [...prev];
+      if (replaceIndex === undefined) {
+        next.push({ role: "user", content: trimmed });
+        next.push({ role: "assistant", content: "" });
+      } else {
+        next[replaceIndex] = { role: "assistant", content: "" };
+      }
+      return next;
+    });
+    setInput("");
+    await streamAnswer(trimmed, history, assistantIndex);
+  }
+
+  /**
+   * Edit a sent question the ChatGPT way: everything from that turn onward is
+   * dropped, the edited question replaces it, and the answer streams again.
+   */
+  async function submitEdit(index: number, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+
+    const base = messages.slice(0, index);
+    const history = base
+      .filter((message) => message.content.trim())
+      .slice(-4)
+      .map((message) => ({ role: message.role, content: message.content }));
+
+    setMessages([
+      ...base,
       { role: "user", content: trimmed },
       { role: "assistant", content: "" },
     ]);
-    setInput("");
+    setEditingIndex(null);
+    setEditText("");
+    setRegenCounts({});
+    setCopiedIndex(null);
+    await streamAnswer(trimmed, history, base.length + 1);
+  }
+
+  /** Stream one answer into ``assistantIndex``. */
+  async function streamAnswer(
+    question: string,
+    history: { role: "user" | "assistant"; content: string }[],
+    assistantIndex: number
+  ) {
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
     setError(null);
     setBusy(true);
+    setStreamingIndex(assistantIndex);
     setProvider(null);
-    setToolCall(null);
+    setActiveTool(null);
+    setPhase("thinking");
     setLatestSources([]);
     setLastTool(null);
+
+    const patchAssistant = (patch: (message: AskMessage) => AskMessage) => {
+      setMessages((prev) => {
+        const next = [...prev];
+        const current = next[assistantIndex];
+        if (current?.role === "assistant") next[assistantIndex] = patch(current);
+        return next;
+      });
+    };
 
     let retrieved: Citation[] = [];
 
     try {
       await streamAsk(
-        { question: trimmed, history, session_id: sessionRef.current },
+        { question, history, session_id: sessionRef.current },
         (event, data) => {
         if (event === "tool") {
-          // Backend builds the chip text (covers all 5 debug helpers); fall back to the name.
-          setToolCall(data.label || data.name);
+          // The router decided: show the real activity, not a generic label.
+          setPhase("tool");
+          setActiveTool({
+            name: data.name || "",
+            label: data.label ?? null,
+          });
         }
 
         if (event === "retrieval") {
+          // Documentation search started — say exactly that.
+          setPhase("docs");
           retrieved = data.chunks ?? [];
           setLatestSources(retrieved);
         }
@@ -309,47 +397,35 @@ export function AskPanel() {
         }
 
         if (event === "reset") {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              next[next.length - 1] = { ...last, content: "", citations: undefined };
-            }
-            return next;
-          });
+          patchAssistant((message) => ({
+            ...message,
+            content: "",
+            citations: undefined,
+          }));
         }
 
         if (event === "token") {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              next[next.length - 1] = { ...last, content: last.content + data.text };
-            }
-            return next;
-          });
+          patchAssistant((message) => ({
+            ...message,
+            content: message.content + data.text,
+          }));
         }
 
         if (event === "done") {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              const ids = new Set<string>(data.citations ?? []);
-              next[next.length - 1] = {
-                ...last,
-                content: data.answer || last.content,
-                citations: retrieved.filter((chunk) => ids.has(chunk.chunk_id)),
-                provider: data.provider ?? undefined,
-                insufficient: Boolean(data.insufficient),
-                tool: data.tool ?? undefined,
-                tool_label: data.tool_label ?? undefined,
-              };
-            }
-            return next;
+          patchAssistant((message) => {
+            const ids = new Set<string>(data.citations ?? []);
+            return {
+              ...message,
+              content: data.answer || message.content,
+              citations: retrieved.filter((chunk) => ids.has(chunk.chunk_id)),
+              provider: data.provider ?? undefined,
+              insufficient: Boolean(data.insufficient),
+              tool: data.tool ?? undefined,
+              tool_label: data.tool_label ?? undefined,
+            };
           });
           setProvider(data.provider ?? null);
-          setToolCall(null);
+          setActiveTool(null);
           setLastTool(
             data.tool ? { tool: data.tool, label: data.tool_label ?? null } : null
           );
@@ -375,8 +451,34 @@ export function AskPanel() {
       if (streamAbortRef.current === controller) {
         streamAbortRef.current = null;
         setBusy(false);
+        setStreamingIndex(null);
+        setActiveTool(null);
+        setPhase("thinking");
         inputRef.current?.focus();
       }
+    }
+  }
+
+  function regenerate(index: number) {
+    if (busy) return;
+    const used = regenCounts[index] ?? 0;
+    if (used >= 2) return;
+    const question = messages[index - 1];
+    if (!question || question.role !== "user") return;
+    setRegenCounts((prev) => ({ ...prev, [index]: used + 1 }));
+    void runAsk(question.content, index);
+  }
+
+  async function copyAnswer(index: number, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      window.setTimeout(
+        () => setCopiedIndex((current) => (current === index ? null : current)),
+        1500
+      );
+    } catch {
+      setError("Copy failed — your browser blocked clipboard access.");
     }
   }
 
@@ -398,7 +500,13 @@ export function AskPanel() {
     setInput("");
     setError(null);
     setProvider(null);
-    setToolCall(null);
+    setActiveTool(null);
+    setPhase("thinking");
+    setStreamingIndex(null);
+    setRegenCounts({});
+    setCopiedIndex(null);
+    setEditingIndex(null);
+    setEditText("");
     setLatestSources([]);
     setLastTool(null);
     inputRef.current?.focus();
@@ -420,7 +528,13 @@ export function AskPanel() {
     setLatestSources(turn.citations ?? []);
     setProvider(turn.provider ?? null);
     setError(null);
-    setToolCall(null);
+    setActiveTool(null);
+    setPhase("thinking");
+    setStreamingIndex(null);
+    setRegenCounts({});
+    setCopiedIndex(null);
+    setEditingIndex(null);
+    setEditText("");
     setLastTool(
       turn.tool ? { tool: turn.tool, label: turn.tool_label ?? null } : null
     );
@@ -474,16 +588,6 @@ export function AskPanel() {
             {provider && (
               <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-[11px] font-semibold text-teal-700">
                 {provider}
-              </span>
-            )}
-            {toolCall && (
-              <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700">
-                🔧 {toolCall}
-              </span>
-            )}
-            {busy && !toolCall && (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">
-                thinking…
               </span>
             )}
           </div>
@@ -559,27 +663,142 @@ export function AskPanel() {
           {messages.map((message, index) => (
             <div
               key={index}
-              className={message.role === "user" ? "flex justify-end" : "flex justify-start"}
+              className={`group flex ${
+                message.role === "user" ? "justify-end" : "justify-start"
+              }`}
             >
+              {message.role === "user" ? (
+                <div className="flex max-w-[85%] flex-col items-end gap-1">
+                  {editingIndex === index ? (
+                    <div className="w-full">
+                      <textarea
+                        autoFocus
+                        value={editText}
+                        onChange={(event) => setEditText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setEditingIndex(null);
+                            setEditText("");
+                          }
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            void submitEdit(index, editText);
+                          }
+                        }}
+                        rows={2}
+                        aria-label="Edit question"
+                        className="w-full resize-none rounded-2xl border border-teal-400 bg-white px-4 py-2.5 text-xs text-slate-800 outline-none focus:border-teal-500"
+                      />
+                      <div className="mt-1 flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingIndex(null);
+                            setEditText("");
+                          }}
+                          className="rounded-md px-2 py-1 text-[10px] font-semibold text-slate-500 transition-colors hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void submitEdit(index, editText)}
+                          disabled={busy || !editText.trim()}
+                          className="rounded-md bg-teal-600 px-2 py-1 text-[10px] font-semibold text-white transition-colors hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Save &amp; resend
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-2xl rounded-br-sm bg-teal-700 px-4 py-2.5 text-xs leading-relaxed text-white shadow-xs">
+                        <div className="whitespace-pre-wrap">{message.content}</div>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-lg:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => void copyAnswer(index, message.content)}
+                          aria-label="Copy message"
+                          title={copiedIndex === index ? "Copied" : "Copy message"}
+                          className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          {copiedIndex === index ? (
+                            <svg
+                              className="h-3.5 w-3.5 text-emerald-600"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M20 6L9 17l-5-5" />
+                            </svg>
+                          ) : (
+                            <svg
+                              className="h-3.5 w-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <rect x="9" y="9" width="11" height="11" rx="2" />
+                              <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                            </svg>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingIndex(index);
+                            setEditText(message.content);
+                          }}
+                          disabled={busy}
+                          aria-label="Edit message"
+                          title="Edit this question"
+                          className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <svg
+                            className="h-3.5 w-3.5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
               <div
                 className={
-                  message.role === "user"
-                    ? "max-w-[85%] rounded-2xl rounded-br-sm bg-slate-950 px-4 py-2.5 text-xs leading-relaxed text-white"
-                    : "max-w-[92%] rounded-2xl rounded-bl-sm border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-800"
+                  "max-w-[92%] rounded-2xl rounded-bl-sm border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-800"
                 }
               >
-                {message.role === "assistant" && !message.content && busy && (
-                  <span className="text-slate-400">Retrieving docs and thinking…</span>
+                {message.role === "assistant" && streamingIndex === index && !message.content && (
+                  <AskActivityIndicator
+                    tool={activeTool?.name ?? null}
+                    label={activeTool?.label ?? null}
+                    mode={phase}
+                  />
                 )}
                 {message.role === "assistant" && message.tool && message.content && (
-                  <div className="mb-2">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                      ⚡ Live tool · {message.tool_label || message.tool}
-                    </span>
-                    <p className="mt-1 text-[10px] leading-snug text-violet-500">
-                      Computed now by a real function — not taken from the documentation.
-                    </p>
-                  </div>
+                  <LiveToolBadge
+                    tool={message.tool}
+                    label={message.tool_label ?? null}
+                  />
                 )}
                 {message.role === "assistant" && !message.tool && message.content && (
                   <span className="mb-2 inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
@@ -620,7 +839,71 @@ export function AskPanel() {
                     </ul>
                   </div>
                 )}
+
+                {message.role === "assistant" &&
+                  message.content &&
+                  streamingIndex !== index && (
+                    <div className="mt-2 flex items-center gap-1 border-t border-slate-200 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => void copyAnswer(index, message.content)}
+                        aria-label="Copy answer"
+                        className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-800"
+                      >
+                        <svg
+                          className="h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <rect x="9" y="9" width="11" height="11" rx="2" />
+                          <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                        </svg>
+                        {copiedIndex === index ? "Copied" : "Copy"}
+                      </button>
+                      {index === messages.length - 1 && (
+                        <button
+                          type="button"
+                          onClick={() => regenerate(index)}
+                          disabled={busy || (regenCounts[index] ?? 0) >= 2}
+                          aria-label="Regenerate answer"
+                          title={
+                            (regenCounts[index] ?? 0) >= 2
+                              ? "Regenerate limit reached (2 per answer)"
+                              : "Ask the same question again"
+                          }
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <svg
+                            className="h-3 w-3"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+                            <path d="M21 3v6h-6" />
+                          </svg>
+                          Regenerate
+                        </button>
+                      )}
+                      {index === messages.length - 1 &&
+                        (regenCounts[index] ?? 0) > 0 && (
+                          <span className="ml-auto text-[10px] text-slate-400">
+                            {regenCounts[index]}/2
+                          </span>
+                        )}
+                    </div>
+                  )}
               </div>
+              )}
             </div>
           ))}
           <div ref={bottomRef} />

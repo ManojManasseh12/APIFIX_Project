@@ -111,7 +111,11 @@ def save(record: dict[str, Any]) -> None:
                     access_token, refresh_token, expires_at, updated_at
                 ) values (%s, %s, %s, %s, %s, %s, %s, now())
                 on conflict (user_id, provider) do update set
-                    account_email = excluded.account_email,
+                    -- A refresh response has no id_token, so keep the email
+                    -- that the first consent stored.
+                    account_email = coalesce(
+                        excluded.account_email, mcp_connections.account_email
+                    ),
                     scopes = excluded.scopes,
                     access_token = excluded.access_token,
                     refresh_token = coalesce(
@@ -136,12 +140,16 @@ def save(record: dict[str, Any]) -> None:
     epoch = expires_at.timestamp() if expires_at else None
     with _sqlite() as conn:
         existing = conn.execute(
-            "select refresh_token from mcp_connections where user_id = ? and provider = ?",
+            "select refresh_token, account_email from mcp_connections "
+            "where user_id = ? and provider = ?",
             (record["user_id"], record["provider"]),
         ).fetchone()
         # Google only returns a refresh token on the first consent; keep the
         # stored one when a later save does not include a new value.
         kept_refresh = refresh_token or (existing[0] if existing else None)
+        # A refresh response carries no id_token, so the account email must
+        # survive it too.
+        kept_email = record.get("account_email") or (existing[1] if existing else None)
         conn.execute(
             """
             insert or replace into mcp_connections (
@@ -155,7 +163,7 @@ def save(record: dict[str, Any]) -> None:
             (
                 record["user_id"],
                 record["provider"],
-                record.get("account_email"),
+                kept_email,
                 scopes,
                 access_token,
                 kept_refresh,

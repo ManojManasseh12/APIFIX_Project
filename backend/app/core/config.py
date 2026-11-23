@@ -101,6 +101,13 @@ class Settings(BaseSettings):
     google_oauth_token_url: str = "https://oauth2.googleapis.com/token"
     google_calendar_mcp_url: str = "https://calendarmcp.googleapis.com/mcp/v1"
     google_gmail_mcp_url: str = "https://gmailmcp.googleapis.com/mcp/v1"
+    # How the Calendar/Gmail tools reach Google:
+    #   "rest" → the public Calendar + Gmail REST APIs (works without any
+    #            preview access; read-only scopes are enough);
+    #   "mcp"  → Google's remote MCP servers, which require the Google Cloud
+    #            project to be enrolled in the Workspace Developer Preview
+    #            Program (otherwise Google answers 403 for every tool).
+    google_connector_mode: str = "rest"
     mcp_token_encryption_key: str = ""
 
     @property

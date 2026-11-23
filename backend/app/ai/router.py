@@ -32,6 +32,10 @@ Route = Literal[
     "tool:github_prs",
     "tool:github_repo",
     "tool:github_repos",
+    "tool:github_file",
+    "tool:github_spec",
+    "tool:github_commits",
+    "tool:github_ci",
     "tool:github_write",
     "tool:gcal_events",
     "tool:gcal_search",
@@ -49,6 +53,10 @@ _TOOL_ROUTES = (
     "tool:github_prs",
     "tool:github_repo",
     "tool:github_repos",
+    "tool:github_file",
+    "tool:github_spec",
+    "tool:github_commits",
+    "tool:github_ci",
     "tool:github_write",
     "tool:gcal_events",
     "tool:gcal_search",
@@ -127,6 +135,63 @@ _GITHUB_WRITE_MARKERS = re.compile(
 _GITHUB_CLOSED_STATE = re.compile(r"\bclosed\b|\bmerged\b|\bdone\b", re.IGNORECASE)
 _GITHUB_ALL_STATE = re.compile(r"\ball\b|\bevery\b", re.IGNORECASE)
 
+# Deeper repository questions: reading code, the API spec, history, and CI.
+# These are the ones that answer "why is this endpoint broken?", so they only
+# fire with a repository context — otherwise "what is package.json?" would
+# leave the knowledge base.
+_GITHUB_FILE_RE = re.compile(
+    r"\b[\w.-]+(?:/[\w.-]+)*\.(?:py|ts|tsx|js|jsx|mjs|cjs|json|ya?ml|toml|ini|cfg|"
+    r"conf|md|txt|go|rb|java|kt|php|cs|rs|sh|sql)\b",
+    re.IGNORECASE,
+)
+# "show me X", "what's in X": wording that asks for file contents, not a
+# definition. "what is package.json?" stays in RAG.
+_GITHUB_FILE_QUESTION = re.compile(
+    r"\b(?:read|show|open|print|display|cat|contents?\s+of|"
+    r"what(?:'s| is)\s+(?:in|inside))\b",
+    re.IGNORECASE,
+)
+_GITHUB_SPEC_MARKERS = re.compile(
+    r"\b(?:openapi|swagger)\b|\bapi\s+spec(?:ification)?\b|\bspec\s+file\b"
+    r"|\bendpoints?\s+(?:in|from|of)\b",
+    re.IGNORECASE,
+)
+_GITHUB_COMMIT_MARKERS = re.compile(
+    r"\b(?:commits?|git\s+log|recent\s+changes?|"
+    r"changed\s+(?:recently|this\s+week|lately)|"
+    r"last\s+\d+\s+(?:commits?|changes))\b",
+    re.IGNORECASE,
+)
+_GITHUB_COMMIT_STRONG = re.compile(r"\b(?:commits?|git\s+log)\b", re.IGNORECASE)
+_GITHUB_CI_MARKERS = re.compile(
+    r"\b(?:ci|workflow\s+runs?|github\s+actions|pipeline|"
+    r"build\s+(?:status|fail\w*|red|green)|"
+    r"checks?\s+(?:status|fail\w*|red|green|pass\w*)|"
+    r"failing\s+(?:build|ci|tests?))\b",
+    re.IGNORECASE,
+)
+_GITHUB_CI_QUERY = re.compile(
+    r"\b(?:status|state|pass\w*|fail\w*|red|green|broken|running|queued|runs?|"
+    r"results?|conclusion|latest|last|recent)\b",
+    re.IGNORECASE,
+)
+_GITHUB_REPO_HINT = re.compile(
+    r"\b(?:repos?|repositories?|codebase|our\s+code|the\s+code)\b"
+    r"|\b(?:our|my)\s+(?:api|service|backend|server|app)\b",
+    re.IGNORECASE,
+)
+_GITHUB_DOCS_QUESTION = re.compile(
+    r"^\s*(?:how|what|why|when|should|can|could|explain|difference|is|are|does|do)\b",
+    re.IGNORECASE,
+)
+_GITHUB_BRANCH_RE = re.compile(
+    r"\b(?:branch|on)\s+([A-Za-z0-9][A-Za-z0-9._/-]{1,40})\b", re.IGNORECASE
+)
+_GITHUB_BRANCH_WORDS = {
+    "the", "my", "our", "a", "an", "this", "that", "default", "which", "what",
+    "github", "git", "actions", "ci", "it",
+}
+
 # Google Calendar / Gmail: only personal data questions. Anything about the
 # APIs themselves (scopes, OAuth, integration) stays in the knowledge base.
 _CAL_MARKERS = re.compile(
@@ -138,7 +203,8 @@ _CAL_PERSONAL = re.compile(
     re.IGNORECASE,
 )
 _GMAIL_MARKERS = re.compile(
-    r"\b(?:gmail|e-?mails?|inbox|mailbox|threads?)\b", re.IGNORECASE
+    # "mail" on its own is how people usually say it ("check my mail").
+    r"\b(?:gmail|e-?mails?|mail|inbox|mailbox|threads?)\b", re.IGNORECASE
 )
 _GMAIL_INTENT = re.compile(
     r"\b(?:find|search|show|list|any|latest|recent|unread|from|about|"
@@ -146,7 +212,10 @@ _GMAIL_INTENT = re.compile(
     re.IGNORECASE,
 )
 _GMAIL_PERSONAL = re.compile(
-    r"\b(?:my|me|i|inbox|unread|from|to|received|sent|latest|recent|any)\b",
+    # In this assistant there is only one mailbox, so "find emails about X"
+    # means the user's own mail even without the word "my".
+    r"\b(?:my|me|i|inbox|unread|from|to|received|sent|latest|recent|any|"
+    r"e-?mails?|mails?)\b",
     re.IGNORECASE,
 )
 # Setup / documentation wording: "how do I integrate the Gmail API?" is RAG.
@@ -155,10 +224,16 @@ _SETUP_QUESTION = re.compile(
     r"documentation|docs|sdk|webhook)\b",
     re.IGNORECASE,
 )
+# Naming the product API ("Gmail API", "Calendar API") means the question is
+# about the platform, not the user's mailbox — keep it in RAG.
+_API_PRODUCT = re.compile(
+    r"\b(?:gmail|calendar|google|workspace)\s+api\b", re.IGNORECASE
+)
 _GOOGLE_WRITE = re.compile(
     r"\b(?:create|schedule|add|book|delete|cancel|update|move|accept|decline|"
     r"respond to|send|draft|label|archive)\b[^.!?]{0,40}"
-    r"\b(?:events?|meetings?|appointments?|emails?|messages?|invites?|invitations?)\b",
+    r"\b(?:events?|meetings?|appointments?|e-?mails?|mails?|messages?|invites?|"
+    r"invitations?)\b",
     re.IGNORECASE,
 )
 _CAL_TIME_WORDS = {
@@ -239,17 +314,92 @@ def _github_state(question: str) -> str:
     return "open"
 
 
+def _github_file_path(question: str) -> str | None:
+    """A repository-relative file path mentioned in the question, if any."""
+    match = _GITHUB_FILE_RE.search(question)
+    if not match:
+        return None
+    candidate = match.group(0).strip(".,;:!?`'\"")
+    return candidate or None
+
+
+def _github_branch(question: str) -> str:
+    """The branch a CI question is about ("on main", "branch feature/x")."""
+    if re.search(r"\bon\s+(?:the\s+)?main\b", question, re.IGNORECASE):
+        return "main"
+    if re.search(r"\bon\s+(?:the\s+)?master\b", question, re.IGNORECASE):
+        return "master"
+    match = _GITHUB_BRANCH_RE.search(question)
+    if not match:
+        return ""
+    value = match.group(1).rstrip(".,?!")
+    return "" if value.lower() in _GITHUB_BRANCH_WORDS else value
+
+
 def _github_decision(question: str) -> RouteDecision | None:
     """Route GitHub data questions; leave GitHub documentation to RAG."""
     from app.connectors import github
 
-    explicit_repo = github.parse_repo(question)
+    path = _github_file_path(question)
+    # A file path is not a repository name: drop it before repo parsing so
+    # "read src/main.py" does not look like owner "src", repo "main.py".
+    repo_text = question.replace(path, " ") if path else question
+    explicit_repo = github.parse_repo(repo_text)
     mentions_github = bool(_GITHUB_MARKERS.search(question))
-    if not (mentions_github or explicit_repo):
-        # Without a GitHub mention or an explicit owner/repo, words like
-        # "issue" belong to normal API questions.
-        return None
+    repo_hint = bool(_GITHUB_REPO_HINT.search(question))
+    repo_context = mentions_github or explicit_repo is not None or repo_hint
+    has_default = bool(github.default_repo())
     repo = explicit_repo or github.default_repo()
+
+    # "show me the spec" asks for data; "how do I write an OpenAPI spec?"
+    # asks for documentation. The verb decides.
+    asks_for_data = bool(_GITHUB_FILE_QUESTION.search(question)) or bool(
+        re.search(r"\bendpoints?\b", question, re.IGNORECASE)
+    )
+    docs_question = bool(_GITHUB_DOCS_QUESTION.search(question))
+
+    # ── Repository contents, in priority order ──
+    if _GITHUB_SPEC_MARKERS.search(question) and repo_context and not (
+        docs_question and not asks_for_data and not mentions_github and explicit_repo is None
+    ):
+        return RouteDecision(
+            route="tool:github_spec",
+            via="rule",
+            args={"repo": repo, "path": path or ""},
+        )
+
+    if (repo_context and _GITHUB_COMMIT_MARKERS.search(question)) or (
+        has_default and _GITHUB_COMMIT_STRONG.search(question)
+    ):
+        return RouteDecision(
+            route="tool:github_commits",
+            via="rule",
+            args={"repo": repo, "path": path or "", "limit": 10},
+        )
+
+    if (
+        (repo_context or has_default)
+        and _GITHUB_CI_MARKERS.search(question)
+        and _GITHUB_CI_QUERY.search(question)
+    ):
+        return RouteDecision(
+            route="tool:github_ci",
+            via="rule",
+            args={"repo": repo, "branch": _github_branch(question)},
+        )
+
+    if path and (repo_context or asks_for_data or has_default):
+        return RouteDecision(
+            route="tool:github_file",
+            via="rule",
+            args={"repo": repo, "path": path},
+        )
+
+    # ── Issues / pull requests / repository summary ──
+    # These keep the original strict rule: GitHub or owner/repo must be named,
+    # so "what are the open issues in my repository?" is not hijacked.
+    if not (mentions_github or explicit_repo):
+        return None
 
     wants_issue = bool(_GITHUB_ISSUE_MARKERS.search(question))
     wants_pr = bool(_GITHUB_PR_MARKERS.search(question))
@@ -347,6 +497,9 @@ def _gmail_query(question: str) -> str:
     )
     if subject:
         phrase = subject.group(1).strip(" .,?!'\"")
+        # "about the Stripe API" → "Stripe API": Gmail matches quoted text
+        # literally, so a leading article would hide real results.
+        phrase = re.sub(r"^(?:the|a|an)\s+", "", phrase, flags=re.IGNORECASE)
         if phrase:
             parts.append(f'"{phrase}"')
 
@@ -356,6 +509,19 @@ def _gmail_query(question: str) -> str:
         parts.append("newer_than:7d")
     elif re.search(r"\bthis month\b", question, re.IGNORECASE):
         parts.append("newer_than:30d")
+
+    # Mailbox qualifier: "check my mail today" means the inbox, while
+    # "sent"/"drafts" must stay precise. An explicit from:/to: filter or a
+    # quoted subject is already narrow enough on its own.
+    if re.search(r"\bsent\b", question, re.IGNORECASE):
+        parts.append("in:sent")
+    elif re.search(r"\bdrafts?\b", question, re.IGNORECASE):
+        parts.append("in:drafts")
+    elif (
+        _GMAIL_MARKERS.search(question)
+        and not any(part.startswith(("in:", "from:", "to:", '"')) for part in parts)
+    ):
+        parts.append("in:inbox")
 
     if not parts:
         words = [
@@ -370,8 +536,8 @@ def _gmail_query(question: str) -> str:
 
 def _google_decision(question: str) -> RouteDecision | None:
     """Route personal Calendar/Gmail questions; keep API questions in RAG."""
-    if _SETUP_QUESTION.search(question):
-        # "How do I integrate the Gmail API?" is documentation.
+    if _SETUP_QUESTION.search(question) or _API_PRODUCT.search(question):
+        # "How do I integrate the Gmail API?" is documentation, not mail.
         return None
 
     is_calendar = bool(_CAL_MARKERS.search(question))

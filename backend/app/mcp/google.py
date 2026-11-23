@@ -166,6 +166,23 @@ READ_TOOLS = {
     tool["name"] for tool in TOOLS if tool["available"] and not tool["write"]
 }
 
+# Read tools that the REST transport actually implements. Everything else is
+# still listed (so the UI stays honest about what exists) but marked as not
+# available, because calling it would fail.
+_REST_TOOLS = {"list_events", "search_events", "search_threads"}
+
+
+def available_tools() -> list[dict[str, Any]]:
+    """Tool catalog with ``available`` reflecting the active transport."""
+    mode = connector_mode()
+    tools: list[dict[str, Any]] = []
+    for tool in TOOLS:
+        item = dict(tool)
+        if not item["write"]:
+            item["available"] = mode == "mcp" or item["name"] in _REST_TOOLS
+        tools.append(item)
+    return tools
+
 
 class GoogleError(Exception):
     """Google could not answer (not configured, not connected, or a failure)."""
@@ -177,6 +194,10 @@ class GoogleNotConfigured(GoogleError):
 
 class GoogleNotConnected(GoogleError):
     """This user has not connected Google yet."""
+
+
+class GoogleAuthError(GoogleError):
+    """Google rejected the access token (401) — refresh or reconnect."""
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -427,9 +448,10 @@ async def status(user_id: str | None) -> dict[str, Any]:
         "account": None,
         "expires_at": None,
         "error": configuration_error(),
-        "tools": TOOLS,
+        "tools": available_tools(),
         "apps": ["calendar", "gmail"],
         "scopes": SCOPES,
+        "mode": connector_mode(),
     }
     if not info["configured"]:
         return info
@@ -493,13 +515,9 @@ async def _call(
         return await client.call_tool(server_url, token, tool_name, arguments)
 
 
-def range_bounds(label: str) -> tuple[str, str]:
-    """Local ISO timestamps (no offset) for a named range.
-
-    Google's docs are explicit: send local time without a UTC offset and
-    let the server resolve the user's time zone.
-    """
-    now = datetime.now()
+def _range_datetimes(label: str) -> tuple[datetime, datetime]:
+    """Start/end of a named range in the user's local time zone."""
+    now = datetime.now().astimezone()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     label = (label or "week").lower()
 
@@ -514,7 +532,17 @@ def range_bounds(label: str) -> tuple[str, str]:
         start, end = today, today + timedelta(days=30)
     else:  # "week" — the default for "what's coming up"
         start, end = now, today + timedelta(days=7)
+    return start, end
 
+
+def range_bounds(label: str) -> tuple[str, str]:
+    """Local ISO timestamps (no offset) for a named range.
+
+    Google's MCP docs are explicit: send local time without a UTC offset and
+    let the server resolve the user's time zone. The REST Calendar API is the
+    opposite (it requires an offset), so it uses ``_range_datetimes`` directly.
+    """
+    start, end = _range_datetimes(label)
     fmt = "%Y-%m-%dT%H:%M:%S"
     return start.strftime(fmt), end.strftime(fmt)
 
@@ -582,10 +610,227 @@ def _threads_from(payload: Any) -> list[dict[str, Any]]:
     return threads
 
 
+# ── REST transport (no Developer Preview needed) ────────────────────────────
+#
+# Google's MCP servers are still gated behind the Workspace Developer Preview
+# Program. The public Calendar and Gmail REST APIs expose the same read data
+# and accept the very same OAuth grant, so they are the default transport.
+# Set GOOGLE_CONNECTOR_MODE=mcp once the project is enrolled.
+
+CALENDAR_API = "https://www.googleapis.com/calendar/v3"
+GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
+
+
+def connector_mode() -> str:
+    """Which transport the tools use ("rest" unless explicitly set to "mcp")."""
+    mode = (settings.google_connector_mode or "rest").strip().lower()
+    return mode if mode in {"rest", "mcp"} else "rest"
+
+
+def _api_error(response: httpx.Response, api: str) -> GoogleError:
+    """Map a Google API failure to an actionable message."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    error = body.get("error") if isinstance(body, dict) else None
+    message = ""
+    reason = ""
+    if isinstance(error, dict):
+        message = str(error.get("message") or "")
+        details = error.get("details") or []
+        for detail in details:
+            if isinstance(detail, dict) and detail.get("reason"):
+                reason = str(detail["reason"])
+                break
+        if not reason:
+            reason = str(error.get("status") or "")
+
+    if response.status_code == 401:
+        return GoogleAuthError(
+            "Google rejected the access token (401). Reconnect Google in the "
+            "Connections sidebar."
+        )
+    if response.status_code == 403:
+        if reason in {"accessNotConfigured", "SERVICE_DISABLED"} or "has not been used" in message:
+            return GoogleError(
+                f"The {api} API is not enabled for this Google Cloud project. "
+                f"Enable it in APIs & Services → Library, then try again."
+            )
+        if "insufficient" in message.lower() or reason == "insufficientPermissions":
+            return GoogleError(
+                f"The Google grant does not include the scope needed for {api}. "
+                "Disconnect Google, then reconnect and approve all requested "
+                "permissions."
+            )
+        return GoogleError(
+            f"Google denied the {api} request (403): {message or reason or 'forbidden'}."
+        )
+    if response.status_code == 429:
+        return GoogleError(
+            f"Google rate-limited the {api} API (429). Wait a moment, then ask again."
+        )
+    return GoogleError(
+        f"The {api} API returned HTTP {response.status_code}"
+        + (f": {message}" if message else ".")
+    )
+
+
+async def _api_get(
+    url: str, token: str, params: dict[str, Any], api: str
+) -> dict[str, Any]:
+    """One authenticated GET against a Google REST API."""
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, trust_env=False) as http:
+            response = await http.get(
+                url,
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise GoogleError(
+            f"The {api} API is unreachable ({type(exc).__name__})."
+        ) from exc
+
+    if response.status_code >= 400:
+        raise _api_error(response, api)
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise GoogleError(f"The {api} API returned a non-JSON reply.") from exc
+    return payload if isinstance(payload, dict) else {}
+
+
+async def _rest_get(user_id: str, url: str, params: dict[str, Any], api: str) -> dict[str, Any]:
+    """GET with one forced token refresh when Google answers 401."""
+    token = await access_token(user_id)
+    try:
+        return await _api_get(url, token, params, api)
+    except GoogleAuthError:
+        token = await access_token(user_id, force_refresh=True)
+        return await _api_get(url, token, params, api)
+
+
+def _event_from_rest(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalise a Calendar API event to the shape the Ask tab renders."""
+    start = item.get("start") or {}
+    end = item.get("end") or {}
+    attendees = item.get("attendees") or []
+    return {
+        "title": item.get("summary") or "(no title)",
+        "start": start.get("dateTime") or start.get("date"),
+        "end": end.get("dateTime") or end.get("date"),
+        "location": item.get("location"),
+        "attendees": [
+            attendee.get("email")
+            for attendee in attendees
+            if isinstance(attendee, dict) and attendee.get("email")
+        ][:8],
+        "status": item.get("status"),
+        "url": item.get("htmlLink"),
+    }
+
+
+def _header(message: dict[str, Any], name: str) -> str | None:
+    headers = (message.get("payload") or {}).get("headers") or []
+    for header in headers:
+        if str(header.get("name") or "").lower() == name.lower():
+            return header.get("value")
+    return None
+
+
+async def _rest_thread(user_id: str, thread_id: str) -> dict[str, Any]:
+    """Subject/from/date for one thread (metadata only, no message bodies)."""
+    payload = await _rest_get(
+        user_id,
+        f"{GMAIL_API}/users/me/threads/{thread_id}",
+        {
+            "format": "metadata",
+            "metadataHeaders": ["Subject", "From", "Date"],
+        },
+        "Gmail",
+    )
+    messages = payload.get("messages") or []
+    last = messages[-1] if messages else {}
+    return {
+        "id": thread_id,
+        "subject": _header(last, "Subject"),
+        "from": _header(last, "From"),
+        "date": _header(last, "Date"),
+        "snippet": last.get("snippet") or payload.get("snippet"),
+    }
+
+
+async def _rest_events(
+    user_id: str, label: str, query: str
+) -> dict[str, Any]:
+    start, end = _range_datetimes(label)
+    params: dict[str, Any] = {
+        "timeMin": start.isoformat(),
+        "timeMax": end.isoformat(),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": 20,
+    }
+    if query:
+        params["q"] = query
+
+    payload = await _rest_get(
+        user_id, f"{CALENDAR_API}/calendars/primary/events", params, "Calendar"
+    )
+    events = [
+        _event_from_rest(item)
+        for item in payload.get("items") or []
+        if isinstance(item, dict)
+    ]
+    return {
+        "range": label,
+        "start": start.strftime("%Y-%m-%dT%H:%M:%S"),
+        "end": end.strftime("%Y-%m-%dT%H:%M:%S"),
+        "calendar": payload.get("summary") or "primary",
+        "query": query or None,
+        "count": len(events),
+        "events": events,
+    }
+
+
+async def _rest_threads(
+    user_id: str, query: str, limit: int
+) -> dict[str, Any]:
+    payload = await _rest_get(
+        user_id,
+        f"{GMAIL_API}/users/me/threads",
+        {"q": query, "maxResults": limit},
+        "Gmail",
+    )
+    ids = [
+        str(item["id"])
+        for item in payload.get("threads") or []
+        if isinstance(item, dict) and item.get("id")
+    ][:limit]
+    threads = await asyncio.gather(
+        *(_rest_thread(user_id, thread_id) for thread_id in ids)
+    )
+    return {
+        "query": query,
+        "count": len(threads),
+        "estimate": payload.get("resultSizeEstimate"),
+        "threads": list(threads),
+    }
+
+
 async def list_events(user_id: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Events in a named range, optionally filtered by free text."""
     args = args or {}
     label = str(args.get("range") or "week")
+    query = str(args.get("query") or "").strip()
+
+    if connector_mode() != "mcp":
+        return await _rest_events(user_id, label, query)
+
     start, end = range_bounds(label)
     arguments: dict[str, Any] = {
         "calendarId": "primary",
@@ -594,7 +839,6 @@ async def list_events(user_id: str, args: dict[str, Any] | None = None) -> dict[
         "endTime": end,
         "orderBy": "startTime",
     }
-    query = str(args.get("query") or "").strip()
     if query:
         arguments["fullText"] = query
 
@@ -631,6 +875,10 @@ async def search_threads(
     args = args or {}
     query = str(args.get("query") or "").strip() or "in:inbox"
     limit = max(1, min(int(args.get("limit") or 10), 25))
+
+    if connector_mode() != "mcp":
+        return await _rest_threads(user_id, query, limit)
+
     result = await _call(
         user_id,
         settings.google_gmail_mcp_url,

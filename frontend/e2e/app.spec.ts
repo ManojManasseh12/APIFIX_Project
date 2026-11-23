@@ -214,6 +214,109 @@ test("Ask API streams an answer with a citation", async ({ page }) => {
   await expect(page.getByText("Ask a question in plain English.")).toBeVisible();
 });
 
+test("an answer can be copied and regenerated at most twice", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+
+  await page.route("**/api/ask", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+      body: sse([
+        ["provider", { name: "test:model" }],
+        ["token", { text: "Use an Idempotency-Key header." }],
+        [
+          "done",
+          {
+            answer: "Use an Idempotency-Key header.",
+            citations: [],
+            invalid_citations: [],
+            provider: "test:model",
+            insufficient: false,
+          },
+        ],
+      ]),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ask API" }).click();
+  await page
+    .getByPlaceholder(/Ask any API question/)
+    .fill("How do I make POST retries safe?");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+
+  const answer = page.getByText("Use an Idempotency-Key header.");
+  await expect(answer).toBeVisible();
+
+  // Copy writes the answer to the clipboard and confirms it.
+  await page.getByRole("button", { name: "Copy answer" }).click();
+  await expect(page.getByText("Copied")).toBeVisible();
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toBe("Use an Idempotency-Key header.");
+
+  // Regenerate re-asks the same question in place, twice at most.
+  const regenerate = page.getByRole("button", { name: "Regenerate answer" });
+  await expect(regenerate).toBeEnabled();
+  await regenerate.click();
+  await expect(page.getByText("1/2")).toBeVisible();
+  await expect(answer).toBeVisible();
+
+  await regenerate.click();
+  await expect(page.getByText("2/2")).toBeVisible();
+  await expect(regenerate).toBeDisabled();
+  await expect(page.getByText("Use an Idempotency-Key header.")).toBeVisible();
+});
+
+test("a sent question can be copied and edited", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+
+  await page.route("**/api/ask", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+      body: sse([
+        ["provider", { name: "test:model" }],
+        ["token", { text: "Use an Idempotency-Key header." }],
+        [
+          "done",
+          {
+            answer: "Use an Idempotency-Key header.",
+            citations: [],
+            invalid_citations: [],
+            provider: "test:model",
+            insufficient: false,
+          },
+        ],
+      ]),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ask API" }).click();
+  await page
+    .getByPlaceholder(/Ask any API question/)
+    .fill("What is idempotency?");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByText("Use an Idempotency-Key header.")).toBeVisible();
+
+  // Copy the sent question itself.
+  await page.getByRole("button", { name: "Copy message" }).click();
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toBe("What is idempotency?");
+
+  // Pencil opens an inline editor; saving drops the old turn and re-asks.
+  await page.getByRole("button", { name: "Edit message" }).click();
+  const editor = page.getByLabel("Edit question");
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveValue("What is idempotency?");
+  await editor.fill("What is a PUT request?");
+  await page.getByRole("button", { name: "Save & resend" }).click();
+
+  await expect(page.getByText("What is a PUT request?")).toBeVisible();
+  await expect(page.getByText("What is idempotency?")).toHaveCount(0);
+  await expect(page.getByText("Use an Idempotency-Key header.")).toBeVisible();
+});
+
 test("connections sidebar lists MCP apps and stays honest about preview", async ({
   page,
 }) => {
