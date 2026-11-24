@@ -21,6 +21,8 @@ from typing import Literal
 
 import httpx
 
+from app.observability import traced
+
 Route = Literal[
     "rag",
     "tool:time",
@@ -724,6 +726,7 @@ _ROUTE_PROMPT = (
 )
 
 
+@traced("router.nvidia", run_type="llm")
 async def _nvidia_route(question: str) -> Route | None:
     """Ask NVIDIA for the route; any failure returns None (caller falls back)."""
     api_key = os.getenv("NVIDIA_API_KEY", "").strip()
@@ -840,6 +843,7 @@ def _nvidia_args(route: str, question: str) -> dict:
     return {}
 
 
+@traced("router", run_type="chain")
 async def route_question(question: str) -> RouteDecision:
     """Decide where a question goes. Never raises; never blocks long."""
     # Order matters: specific tool intents first, generic API words last.

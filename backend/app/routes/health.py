@@ -24,4 +24,8 @@ def health():
         "retrieval_backend": settings.retrieval_backend,
         "database": "supabase" if settings.database_url_configured else "sqlite",
         "providers": families,
+        "langsmith": {
+            "enabled": settings.langsmith_enabled,
+            "project": settings.langsmith_project if settings.langsmith_enabled else None,
+        },
     }

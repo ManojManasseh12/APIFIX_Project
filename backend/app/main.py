@@ -7,8 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.auth import get_current_user
 from app.core.config import settings
+from app.ai.rag.embedding import embedding
+from app.ai.rag.retriever import close_retriever
+from app.connectors import github, sentry
 from app.db import ask_chats, runs
 from app.mcp import store as mcp_store
+from app.observability import shutdown_tracing
 from app.routes import (
     ask,
     policy,
@@ -46,6 +50,19 @@ async def lifespan(app: FastAPI):
         logger.warning("Could not initialize mcp_connections table", exc_info=True)
     yield
     logger.info("App shutdown")
+    # Cleanup order: release external resources first, then flush the trace
+    # queue so shutdown-time failures are still visible in LangSmith.
+    try:
+        close_retriever()
+    except Exception:
+        logger.warning("Could not close the retriever", exc_info=True)
+    try:
+        embedding.close()
+    except Exception:
+        logger.warning("Could not close the embedding client", exc_info=True)
+    github.reset_status_cache()
+    sentry.reset_status_cache()
+    shutdown_tracing()
 
 
 app = FastAPI(title="APIFix AI", version="0.1.0", lifespan=lifespan)

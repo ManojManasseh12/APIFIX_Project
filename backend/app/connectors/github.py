@@ -31,6 +31,7 @@ import httpx
 import yaml
 
 from app.core.config import settings
+from app.observability import traced
 
 GITHUB_API_VERSION = "2022-11-28"
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -138,6 +139,7 @@ def reset_status_cache() -> None:
     _status_cached_at = 0.0
 
 
+@traced("github.get", run_type="tool")
 async def _get(
     path: str,
     params: dict[str, Any] | None = None,

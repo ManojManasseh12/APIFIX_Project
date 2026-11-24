@@ -7,11 +7,13 @@ from app.core.errors import DNSError, PolicyError
 from app.core.models import Observation, RequestSpec
 from app.core.security import redact_headers, redact_text
 from app.core.security import check_url, load_allowed_hosts
+from app.observability import traced
 from app.utils.ids import generate_uuid
 
 MAX_BODY_BYTES = 256 * 1024
 
 
+@traced("http.execute", run_type="tool")
 async def execute(spec: RequestSpec) -> Observation:
     request_id = generate_uuid()
     headers = dict(spec.headers)

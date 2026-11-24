@@ -582,7 +582,7 @@ From the repository root:
 PYTHONPATH=backend pytest backend/tests -q
 ```
 
-80 tests across unit, route, retrieval, security, and seed coverage. The suite
+254 tests across unit, route, retrieval, security, and seed coverage. The suite
 includes `test_api_httpx.py`, which drives
 the real FastAPI app through `httpx.ASGITransport` and starts the mock API on a
 random port to exercise `/api/test`, `/api/retest`, upload → ingest → search →
@@ -629,5 +629,57 @@ python eval/run_eval.py --split heldout
 
 The runner reads `eval/eval_questions.jsonl` and prints Recall@5 and MRR for
 dense, keyword, and hybrid retrieval.
+
+## LangSmith tracing and evaluation (optional)
+
+APIFix AI can send traces to [LangSmith](https://smith.langchain.com) for every
+Ask/diagnose request, the retrieval layer, the LLM fallback, and each tool call.
+Tracing is **off by default**: it only turns on when both flags below are set, and
+the test suite always runs with tracing disabled.
+
+What gets traced:
+
+- one root trace per Ask or diagnose stream (`ask`, `diagnose`);
+- child spans for retrieval, embedding, LLM streaming, routing, tools, and HTTP
+  execution;
+- a small summary as the trace output (route, tool, provider, citations,
+  latency, error) instead of streaming every token;
+- secrets and PII redacted before anything leaves the server, and user ids
+  hashed.
+
+Cleanup: the app flushes traces and releases clients on shutdown, and
+`eval/langsmith_cleanup.py` deletes old experiments/datasets.
+
+### Enable
+
+Add to the backend `.env`:
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_your_api_key_here
+LANGSMITH_PROJECT=apifix-ai
+# Optional: fraction of requests to trace (0.0–1.0). Default 1.0.
+LANGSMITH_SAMPLE_RATE=1.0
+# Optional: salt for hashing user ids in trace metadata.
+LANGSMITH_USER_SALT=change-me
+```
+
+Create a key at https://smith.langchain.com → Settings → API keys, then restart
+the backend. Until then `/api/health` shows `"langsmith": {"enabled": false, ...}`
+and no data is sent.
+
+### Evaluate
+
+```bash
+python eval/langsmith_eval.py --dataset routing
+python eval/langsmith_eval.py --dataset retrieval --split dev
+```
+
+`eval/langsmith_eval.py` needs the same variables and uploads
+`eval/routing_questions.jsonl` / `eval/eval_questions.jsonl` to a LangSmith
+dataset, then runs recall/MRR (retrieval) or exact-route matching (routing).
+
+`eval/langsmith_cleanup.py` deletes old experiments (or datasets) in your
+workspace (dry run by default, add `--apply`).
 
 ---

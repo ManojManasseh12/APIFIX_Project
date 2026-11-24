@@ -5,13 +5,14 @@ import random
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import AsyncIterator, Callable, Protocol
+from typing import Any, AsyncIterator, Callable, Protocol
 
 from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
 
 from app.core.config import settings
 from app.core.errors import AllProvidersFailed, StreamInterrupted
+from app.observability import sanitize_for_trace, traced
 
 # Provider adapters read os.environ directly, so load .env here as well. This
 # keeps get_providers() usable from scripts and tests, not only after the
@@ -383,6 +384,41 @@ async def _timed_stream(
                 await aclose()
 
 
+def _reduce_llm_stream(values: list[Any]) -> dict[str, Any]:
+    """Summarize a token stream instead of logging every token."""
+    values = list(values or [])
+    providers = sorted({provider for provider, _ in values if provider})
+    text = "".join(token for _, token in values if token)
+    return {
+        "tokens": len(values),
+        "providers": providers,
+        "preview": sanitize_for_trace(text[:500]),
+    }
+
+
+def _llm_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep the prompt out of the trace; record only shape and providers.
+
+    The RAG context can contain API bodies, emails, and request headers. A
+    trace does not need the full prompt to be useful, so only sizes are kept.
+    """
+    providers = inputs.get("providers") or []
+    return {
+        "providers": [
+            getattr(provider, "name", type(provider).__name__)
+            for provider in providers
+        ],
+        "system_chars": len(inputs.get("system") or ""),
+        "user_chars": len(inputs.get("user") or ""),
+    }
+
+
+@traced(
+    "llm.stream",
+    run_type="llm",
+    process_inputs=_llm_trace_inputs,
+    reduce_fn=_reduce_llm_stream,
+)
 async def stream_with_fallback(
     providers: list[Provider],
     system: str,

@@ -83,6 +83,16 @@ class Settings(BaseSettings):
         "http://localhost:5173,https://apifix-project.pages.dev"
     )
 
+    # LangSmith tracing/evaluation (optional). Off by default: a trace sends
+    # request/response data to a third party, so it must be opt-in.
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "apifix-ai"
+    langsmith_endpoint: str = ""
+    langsmith_sample_rate: float = Field(default=1.0, ge=0, le=1)
+    # Salt for hashing user ids before they appear in trace metadata.
+    langsmith_user_salt: str = "apifix"
+
     # GitHub connector (Ask tab). The token stays server-side; the browser
     # only ever sees connection status. Empty GITHUB_PAT = not connected.
     github_pat: str = ""
@@ -153,6 +163,11 @@ class Settings(BaseSettings):
     def auth_issuer(self) -> str:
         """Expected `iss` claim of Supabase Auth access tokens."""
         return f"{self.supabase_auth_url.rstrip('/')}/auth/v1"
+
+    @property
+    def langsmith_enabled(self) -> bool:
+        """True only when tracing is explicitly on and a key is configured."""
+        return bool(self.langsmith_tracing and self.langsmith_api_key.strip())
 
     @property
     def database_url_configured(self) -> bool:

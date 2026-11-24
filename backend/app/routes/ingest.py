@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.rag.pipeline import ensure_seeded, pipeline
 from app.core.config import settings
+from app.observability import traced
 from app.routes.upload import validate_upload_name
 
 router = APIRouter(tags=["knowledge-base"])
@@ -15,6 +16,7 @@ class IngestRequest(BaseModel):
 
 
 @router.post("/ingest")
+@traced("ingest", run_type="chain")
 async def ingest_files(payload: IngestRequest | None = None):
     # Seed first so the bundled knowledge base and user uploads coexist in
     # Chroma instead of the first upload replacing the seed corpus.

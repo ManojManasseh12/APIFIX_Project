@@ -9,6 +9,7 @@ from google import genai
 from app.ai.llm import is_retryable_error
 from app.core.models import Chunk
 from app.core.config import settings
+from app.observability import traced
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,15 @@ def _api_key() -> str:
         return key
     keys = [part.strip() for part in (settings.gemini_api_keys or "").split(",")]
     return next((part for part in keys if part), "")
+
+
+def _embedding_summary(value):
+    """Trace-friendly summary: never log a 768-d vector."""
+    if isinstance(value, list) and value and isinstance(value[0], list):
+        return {"count": len(value), "dimensions": len(value[0])}
+    if isinstance(value, list):
+        return {"dimensions": len(value)}
+    return {"value": type(value).__name__}
 
 
 class Embedding:
@@ -65,6 +75,20 @@ class Embedding:
             self._client = genai.Client(api_key=api_key)
         return self._client
 
+    def close(self) -> None:
+        """Release the Gemini client and query cache at app shutdown."""
+        client = self._client
+        self._client = None
+        self._prompt_cache.clear()
+        if client is None:
+            return
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                logger.warning("Could not close the Gemini client", exc_info=True)
+
     async def embed_chunks(self, chunks: Sequence[Chunk]) -> list[list[float]]:
         """Embed document chunks for retrieval indexing."""
         if not chunks:
@@ -74,6 +98,7 @@ class Embedding:
             task_type="RETRIEVAL_DOCUMENT",
         )
 
+    @traced("embed.query", run_type="embedding", process_outputs=_embedding_summary)
     async def embed_prompt(self, text: str) -> list[float]:
         """Embed a user query for retrieval, reusing identical queries."""
         key = (self.model_name, self.dimensions, text)
@@ -88,6 +113,7 @@ class Embedding:
         self._prompt_cache[key] = tuple(vector)
         return vector
 
+    @traced("embed.texts", run_type="embedding", process_outputs=_embedding_summary)
     async def embed_texts(
         self,
         texts: Sequence[str],

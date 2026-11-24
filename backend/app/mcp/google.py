@@ -32,6 +32,7 @@ import httpx
 
 from app.core.config import settings
 from app.mcp import client, crypto, store
+from app.observability import hash_user_id, traced
 
 PROVIDER = "google"
 
@@ -496,6 +497,15 @@ async def disconnect(user_id: str) -> bool:
 
 # ── Tool calls ───────────────────────────────────────────────────────────────
 
+def _hash_user_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Trace inputs for Google calls: never log the raw user id."""
+    return {
+        **{key: value for key, value in inputs.items() if key != "user_id"},
+        "user_id_hash": hash_user_id(inputs.get("user_id")),
+    }
+
+
+@traced("google.call", run_type="tool", process_inputs=_hash_user_inputs)
 async def _call(
     user_id: str, server_url: str, tool_name: str, arguments: dict[str, Any]
 ) -> dict[str, Any]:
@@ -704,6 +714,7 @@ async def _api_get(
     return payload if isinstance(payload, dict) else {}
 
 
+@traced("google.rest_get", run_type="tool", process_inputs=_hash_user_inputs)
 async def _rest_get(user_id: str, url: str, params: dict[str, Any], api: str) -> dict[str, Any]:
     """GET with one forced token refresh when Google answers 401."""
     token = await access_token(user_id)

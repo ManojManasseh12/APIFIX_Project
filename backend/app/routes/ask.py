@@ -29,6 +29,12 @@ from app.mcp.google import GoogleError
 from app.core.errors import AllProvidersFailed, StreamInterrupted
 from app.core.models import AskRequest
 from app.db import ask_chats
+from app.observability import (
+    current_trace_id,
+    hash_user_id,
+    traced,
+    traced_stream,
+)
 from app.routes import sse
 from app.utils.ids import generate_uuid
 
@@ -106,6 +112,15 @@ _GOOGLE_EXECUTORS = {
 }
 
 
+def _tool_trace_inputs(inputs: dict) -> dict:
+    """Trace inputs for a tool call: hash the user id, keep the arguments."""
+    return {
+        **{key: value for key, value in inputs.items() if key != "user_id"},
+        "user_id_hash": hash_user_id(inputs.get("user_id")),
+    }
+
+
+@traced("tool.execute", run_type="tool", process_inputs=_tool_trace_inputs)
 async def _execute_tool(tool_name: str, args: dict, user_id: str | None = None) -> dict:
     """Run one routed tool; raises ToolError on a clean, explainable failure."""
     if tool_name == "google_write":
@@ -286,6 +301,7 @@ async def ask(
     payload: AskRequest, request: Request, user: dict | None = Depends(get_current_user)
 ):
     user_id = user["user_id"] if user else None
+    trace_summary: dict[str, object] = {}
 
     async def events():
         try:
@@ -296,8 +312,10 @@ async def ask(
 
             # ── Router: RAG for API questions, real tools for the rest ──
             decision = await route_question(question)
+            trace_summary.update({"route": decision.route, "via": decision.via})
             if decision.route != "rag":
                 tool_name = decision.route.split(":", 1)[1]
+                trace_summary["tool"] = tool_name
                 yield sse(
                     "tool",
                     {
@@ -310,17 +328,20 @@ async def ask(
                 try:
                     result = await _execute_tool(tool_name, decision.args, user_id)
                 except ToolError as exc:
+                    trace_summary["error"] = "tool_failed"
                     yield sse(
                         "error",
                         {"code": "tool_failed", "message": str(exc)},
                     )
                     return
                 label = _tool_label(tool_name, result)
+                trace_summary["tool_label"] = label
 
                 yield sse("tool_result", {"name": tool_name, "result": result})
 
                 providers = _require_providers()
                 if not providers:
+                    trace_summary["error"] = "no_providers_configured"
                     yield sse(
                         "error",
                         {
@@ -345,6 +366,13 @@ async def ask(
                     # The tool already produced the facts; present them
                     # readably instead of losing them to an LLM outage.
                     answer = format_tool_result(tool_name, result)
+                    trace_summary.update(
+                        {
+                            "provider": None,
+                            "answer_length": len(answer),
+                            "fallback": "tool_result_only",
+                        }
+                    )
                     ask_chats.save(
                         {
                             "turn_id": generate_uuid(),
@@ -366,6 +394,7 @@ async def ask(
                             "provider": None,
                             "tool": tool_name,
                             "tool_label": label,
+                            "trace_id": current_trace_id(),
                         },
                     )
                     return
@@ -373,6 +402,12 @@ async def ask(
                     pass
 
                 answer = "".join(buffer) or format_tool_result(tool_name, result)
+                trace_summary.update(
+                    {
+                        "provider": provider_name,
+                        "answer_length": len(answer),
+                    }
+                )
                 ask_chats.save(
                     {
                         "turn_id": generate_uuid(),
@@ -395,6 +430,7 @@ async def ask(
                         "tool": tool_name,
                         "tool_label": label,
                         "tool_result": result,
+                        "trace_id": current_trace_id(),
                     },
                 )
                 return
@@ -403,6 +439,7 @@ async def ask(
             try:
                 retrieval = await retrieve_for_api(question, api_name=None, path="")
             except Exception as exc:
+                trace_summary["error"] = "retrieval_failed"
                 yield sse(
                     "error",
                     {
@@ -415,6 +452,14 @@ async def ask(
             # Fewer chunks keeps Q&A cheap while still giving the model
             # enough grounded evidence (diagnosis still uses six).
             retrieval.chunks = retrieval.chunks[:4]
+            trace_summary.update(
+                {
+                    "insufficient": retrieval.insufficient,
+                    "retrieved_chunk_ids": [
+                        chunk.get("chunk_id") for chunk in retrieval.chunks
+                    ],
+                }
+            )
 
             yield sse(
                 "retrieval",
@@ -438,6 +483,7 @@ async def ask(
 
             providers = get_providers()
             if not providers:
+                trace_summary["error"] = "no_providers_configured"
                 yield sse(
                     "error",
                     {
@@ -484,9 +530,11 @@ async def ask(
                     buffer.append(token)
                     yield sse("token", {"text": token})
             except AllProvidersFailed as exc:
+                trace_summary["error"] = "all_providers_failed"
                 yield sse("error", {"code": "all_providers_failed", "message": str(exc)})
                 return
             except StreamInterrupted as exc:
+                trace_summary["error"] = "stream_interrupted"
                 yield sse("error", {"code": "stream_interrupted", "message": str(exc)})
                 return
 
@@ -494,6 +542,14 @@ async def ask(
             cited = set(CITATION_RE.findall(answer))
             valid_ids = {chunk["chunk_id"] for chunk in retrieval.chunks}
             invalid = cited - valid_ids
+            trace_summary.update(
+                {
+                    "provider": provider_name,
+                    "answer_length": len(answer),
+                    "citations": sorted(cited & valid_ids),
+                    "invalid_citations": sorted(invalid),
+                }
+            )
 
             # Persist the turn (same history store as diagnosis runs). The
             # citations saved are the full chunk metadata so the history
@@ -528,13 +584,28 @@ async def ask(
                     "invalid_citations": sorted(invalid),
                     "provider": provider_name,
                     "insufficient": retrieval.insufficient,
+                    "trace_id": current_trace_id(),
                 },
             )
         except Exception as exc:
+            trace_summary["error"] = type(exc).__name__
             yield sse("error", {"code": type(exc).__name__, "message": str(exc)})
 
     return StreamingResponse(
-        events(),
+        traced_stream(
+            "ask",
+            events(),
+            inputs={
+                "question": payload.question,
+                "session_id": payload.session_id,
+            },
+            tags=["ask"],
+            metadata={
+                "user_id_hash": hash_user_id(user_id),
+                "session_id": payload.session_id,
+            },
+            summary=trace_summary,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

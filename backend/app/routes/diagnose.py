@@ -14,6 +14,12 @@ from app.core.models import RequestSpec
 from app.core.security import require_approval
 from app.core.tester import execute
 from app.db import runs
+from app.observability import (
+    current_trace_id,
+    hash_user_id,
+    sanitize_url,
+    traced_stream,
+)
 from app.routes import sse
 from app.utils.ids import generate_uuid
 
@@ -26,16 +32,25 @@ async def diagnose(
 ):
     run_id = generate_uuid()
     user_id = user["user_id"] if user else None
+    trace_summary: dict[str, object] = {}
 
     async def events():
         try:
             try:
                 require_approval(spec)
             except ApprovalRequired as exc:
+                trace_summary["error"] = "approval_required"
                 yield sse("error", {"code": "approval_required", "message": str(exc)})
                 return
 
             observation = await execute(spec)
+            trace_summary.update(
+                {
+                    "status": observation.status,
+                    "error_type": observation.error_type,
+                    "latency_ms": observation.latency_ms,
+                }
+            )
             yield sse("observation", observation.model_dump(mode="json"))
 
             try:
@@ -45,11 +60,22 @@ async def diagnose(
                     path=str(spec.url),
                 )
             except Exception as exc:
+                trace_summary["error"] = "retrieval_failed"
                 yield sse(
                     "error",
                     {"code": "retrieval_failed", "message": f"{type(exc).__name__}: {exc}"},
                 )
                 return
+
+            trace_summary.update(
+                {
+                    "insufficient": retrieval.insufficient,
+                    "version_mismatch": retrieval.version_mismatch,
+                    "retrieved_chunk_ids": [
+                        chunk.get("chunk_id") for chunk in retrieval.chunks
+                    ],
+                }
+            )
 
             yield sse(
                 "retrieval",
@@ -79,6 +105,7 @@ async def diagnose(
                     f"API version. Known versions: {', '.join(retrieval.other_versions) or 'unknown'}. "
                     "Add the matching versioned documentation before diagnosing."
                 )
+                trace_summary["outcome"] = "version_mismatch"
                 yield sse(
                     "done",
                     {
@@ -88,6 +115,7 @@ async def diagnose(
                         "invalid_citations": [],
                         "patch": None,
                         "confidence": "low",
+                        "trace_id": current_trace_id(),
                     },
                 )
                 return
@@ -98,6 +126,7 @@ async def diagnose(
                     "specific cause. Add the API's versioned documentation or share the "
                     "error code, then retest."
                 )
+                trace_summary["outcome"] = "insufficient_evidence"
                 yield sse(
                     "done",
                     {
@@ -107,12 +136,14 @@ async def diagnose(
                         "invalid_citations": [],
                         "patch": None,
                         "confidence": "low",
+                        "trace_id": current_trace_id(),
                     },
                 )
                 return
 
             providers = get_providers()
             if not providers:
+                trace_summary["error"] = "no_providers_configured"
                 yield sse(
                     "error",
                     {
@@ -152,9 +183,11 @@ async def diagnose(
                     buffer.append(token)
                     yield sse("token", {"text": token})
             except AllProvidersFailed as exc:
+                trace_summary["error"] = "all_providers_failed"
                 yield sse("error", {"code": "all_providers_failed", "message": str(exc)})
                 return
             except StreamInterrupted as exc:
+                trace_summary["error"] = "stream_interrupted"
                 yield sse("error", {"code": "stream_interrupted", "message": str(exc)})
                 return
 
@@ -170,6 +203,17 @@ async def diagnose(
                     patch = json.loads(match.group(1)).get("patch")
                 except Exception:
                     patch = None
+
+            trace_summary.update(
+                {
+                    "outcome": "diagnosed",
+                    "provider": provider_name,
+                    "answer_length": len(text),
+                    "citations": sorted(cited & valid_ids),
+                    "invalid_citations": sorted(invalid),
+                    "patch": patch is not None,
+                }
+            )
 
             runs.save(
                 {
@@ -195,13 +239,29 @@ async def diagnose(
                     "invalid_citations": sorted(invalid),
                     "patch": patch,
                     "provider": provider_name,
+                    "trace_id": current_trace_id(),
                 },
             )
         except Exception as exc:
+            trace_summary["error"] = type(exc).__name__
             yield sse("error", {"code": type(exc).__name__, "message": str(exc)})
 
     return StreamingResponse(
-        events(),
+        traced_stream(
+            "diagnose",
+            events(),
+            inputs={
+                "method": spec.method,
+                "url": sanitize_url(str(spec.url)),
+                "has_body": bool(spec.body),
+            },
+            tags=["diagnose"],
+            metadata={
+                "user_id_hash": hash_user_id(user_id),
+                "run_id": run_id,
+            },
+            summary=trace_summary,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.ai.rag.pipeline import ensure_seeded, pipeline
+from app.observability import traced
 
 router = APIRouter(tags=["knowledge-base"])
 
@@ -15,6 +16,7 @@ class SearchRequest(BaseModel):
 
 
 @router.post("/search")
+@traced("search", run_type="retriever")
 async def search(payload: SearchRequest):
     await ensure_seeded()
     hits = await pipeline.retrieve(

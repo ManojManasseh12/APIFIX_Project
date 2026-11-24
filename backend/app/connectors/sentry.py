@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.observability import traced
 
 _TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 _MAX_ISSUES = 20
@@ -100,6 +101,7 @@ def _require_config() -> None:
         )
 
 
+@traced("sentry.get", run_type="tool")
 async def _get(
     path: str,
     params: dict[str, Any] | None = None,

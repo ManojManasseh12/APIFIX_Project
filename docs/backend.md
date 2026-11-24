@@ -105,6 +105,15 @@ machine-usable patch — the prompt and parsers are the contract with the UI.
 | `retriever.py` | version detection & mismatch guard, local retriever variants | Prevents diagnosing v3 requests with v2 docs |
 | `query.py` | `build_query(spec, observation)` — status-aware: 2xx queries "successful response 2xx semantics" and ignores stale failure-phrased questions | Fixed a real bug: stale preset questions polluted retrieval for successful calls |
 
+## `observability/` — LangSmith tracing (optional)
+
+- `langsmith.py` | off-by-default wrappers (`traced`, `traced_stream`, `trace_call`, `get_client`, `flush_traces`, `shutdown_tracing`) | No key → no client → no network; streaming roots end on every exit path (normal, disconnect, error, cancel) |
+| `sanitize.py` | `sanitize_for_trace`, `sanitize_url`, `hash_user_id` | redact secrets, drop PII (snippets/attendees), truncate, hash user ids before a trace is built |
+
+Tracing keys live in `core/config.py` (`langsmith_tracing`, `langsmith_api_key`,
+`langsmith_project`, `langsmith_endpoint`, `langsmith_sample_rate`,
+`langsmith_user_salt`). With `LANGSMITH_TRACING=false` every helper is a no-op.
+
 ## db/runs.py — history
 **What:** dispatcher picking Supabase Postgres (DATABASE_URL) or SQLite
 (data/runs.sqlite3); `initialize_async()` creates the table at startup;

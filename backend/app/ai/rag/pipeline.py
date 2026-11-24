@@ -9,6 +9,7 @@ from app.core.models import Chunk, SearchHit
 from app.ai.rag.vector_store import get_store, vector_store
 from app.core.config import settings
 from app.ai.rag.retriever import RetrievalResult, detect_version, get_retriever
+from app.observability import traced
 
 
 class VectorStoreInterface(Protocol):
@@ -80,6 +81,7 @@ class RAGPipeline:
         )
 
 
+@traced("rag.retrieve", run_type="retriever")
 async def retrieve_for_api(
     question: str, api_name: str | None = None, path: str = ""
 ) -> RetrievalResult:
@@ -179,12 +181,14 @@ async def ensure_seeded() -> dict[str, Any]:
     return await pipeline.store.stats()
 
 
+@traced("rag.ingest", run_type="chain")
 async def ingest(
     folder: str | Path, source_files: list[str] | None = None
 ) -> dict[str, Any]:
     return await pipeline.ingest(folder, source_files)
 
 
+@traced("rag.search", run_type="retriever")
 async def retrieve(
     question: str,
     mode: str = "hybrid",

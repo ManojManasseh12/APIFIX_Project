@@ -1,0 +1,27 @@
+{"question": "what is a 401 error?", "expected_route": "rag", "split": "dev"}
+{"question": "explain idempotency", "expected_route": "rag", "split": "dev"}
+{"question": "what is a rate limit?", "expected_route": "rag", "split": "dev"}
+{"question": "why does a 403 happen?", "expected_route": "rag", "split": "heldout"}
+{"question": "what is a webhook?", "expected_route": "rag", "split": "heldout"}
+{"question": "what time is it in Tokyo?", "expected_route": "tool:time", "split": "dev"}
+{"question": "what time is it in New York?", "expected_route": "tool:time", "split": "heldout"}
+{"question": "convert 1700000000 to a date", "expected_route": "tool:epoch", "split": "dev"}
+{"question": "what date is epoch 0?", "expected_route": "tool:epoch", "split": "heldout"}
+{"question": "decode this JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature", "expected_route": "tool:decode", "split": "dev"}
+{"question": "dns records for example.com", "expected_route": "tool:dns", "split": "dev"}
+{"question": "where is 8.8.8.8 located?", "expected_route": "tool:ip", "split": "dev"}
+{"question": "lookup 1.1.1.1", "expected_route": "tool:ip", "split": "heldout"}
+{"question": "list open issues in octocat/Hello-World", "expected_route": "tool:github_issues", "split": "dev"}
+{"question": "show pull requests for octocat/Hello-World", "expected_route": "tool:github_prs", "split": "dev"}
+{"question": "how many stars does octocat/Hello-World have?", "expected_route": "tool:github_repo", "split": "dev"}
+{"question": "read src/main.py from octocat/Hello-World", "expected_route": "tool:github_file", "split": "dev"}
+{"question": "show the openapi spec in octocat/Hello-World", "expected_route": "tool:github_spec", "split": "heldout"}
+{"question": "recent commits in octocat/Hello-World", "expected_route": "tool:github_commits", "split": "heldout"}
+{"question": "ci runs for octocat/Hello-World", "expected_route": "tool:github_ci", "split": "dev"}
+{"question": "show sentry issues", "expected_route": "tool:sentry_issues", "split": "dev"}
+{"question": "show sentry issue 1234567890", "expected_route": "tool:sentry_event", "split": "dev"}
+{"question": "show sentry errors for /api/orders", "expected_route": "tool:sentry_events", "split": "dev"}
+{"question": "what is Sentry?", "expected_route": "rag", "split": "heldout"}
+{"question": "what is a stack trace?", "expected_route": "rag", "split": "dev"}
+{"question": "what's on my calendar tomorrow?", "expected_route": "tool:gcal_events", "split": "dev"}
+{"question": "search my gmail for invoices", "expected_route": "tool:gmail_search", "split": "dev"}

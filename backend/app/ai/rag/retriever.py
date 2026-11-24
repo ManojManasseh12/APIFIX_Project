@@ -183,6 +183,18 @@ class SupabaseRetriever:
             self._search_sync, vector, query, api_name, path
         )
 
+    def close(self) -> None:
+        """Release the shared Postgres connection at app shutdown."""
+        conn = getattr(self, "conn", None)
+        if conn is None:
+            return
+        try:
+            conn.close()
+        except Exception:
+            logger.warning("Could not close the Supabase retriever", exc_info=True)
+        finally:
+            self.conn = None
+
     def _search_sync(
         self, vector: list[float], query: str, api_name: str | None, path: str
     ) -> RetrievalResult:
@@ -229,3 +241,13 @@ def get_retriever():
             )
     _RETRIEVER = LocalRetriever()
     return _RETRIEVER
+
+
+def close_retriever() -> None:
+    """Release the cached retriever (Postgres connection) at shutdown."""
+    global _RETRIEVER
+    retriever = _RETRIEVER
+    _RETRIEVER = None
+    close = getattr(retriever, "close", None)
+    if callable(close):
+        close()

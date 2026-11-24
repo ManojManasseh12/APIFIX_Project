@@ -7,6 +7,7 @@ from app.core.security import require_approval
 from app.core.security import redact_headers
 from app.core.retest import apply_patch, diff
 from app.core.tester import execute
+from app.observability import traced
 
 router = APIRouter(tags=["retest"])
 
@@ -18,6 +19,7 @@ class RetestIn(BaseModel):
 
 
 @router.post("/retest")
+@traced("retest", run_type="chain")
 async def retest(payload: RetestIn):
     patched = apply_patch(payload.spec, payload.patch)
     try:

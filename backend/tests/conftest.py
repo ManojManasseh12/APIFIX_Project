@@ -21,3 +21,8 @@ os.environ["GITHUB_DEFAULT_REPO"] = ""
 os.environ["GOOGLE_CLIENT_ID"] = ""
 os.environ["GOOGLE_CLIENT_SECRET"] = ""
 os.environ["MCP_TOKEN_ENCRYPTION_KEY"] = ""
+
+# LangSmith: tests must never send traces to a real project. The app treats
+# tracing as off unless both the flag and a key are set.
+os.environ["LANGSMITH_TRACING"] = "false"
+os.environ["LANGSMITH_API_KEY"] = ""
