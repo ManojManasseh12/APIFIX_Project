@@ -45,8 +45,27 @@ export const MCP_APPS: McpApp[] = [
     tools: [
       { name: "search_issues", description: "Find issues by repo, label, or text" },
       { name: "get_pull_request", description: "Read a PR's status, checks, and diff" },
+      { name: "read_file", description: "Read a source or docs file from a repo" },
+      { name: "openapi_spec", description: "Read the OpenAPI/Swagger spec" },
+      { name: "recent_commits", description: "Recent commits, optionally for one file" },
+      { name: "workflow_runs", description: "Check recent CI runs and failures" },
       { name: "create_issue", description: "Open a new issue", write: true },
       { name: "comment_on_issue", description: "Post a comment on an issue", write: true },
+    ],
+  },
+  {
+    id: "sentry",
+    name: "Sentry",
+    tagline: "Production errors and stack traces",
+    category: "developer",
+    auth: "api_key",
+    status: "preview",
+    tint: "bg-purple-50 text-purple-700",
+    icon: "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01",
+    tools: [
+      { name: "list_issues", description: "Unresolved issues, newest first" },
+      { name: "get_issue_event", description: "Latest event: exception, stack, request" },
+      { name: "search_events", description: "Events matching an endpoint URL" },
     ],
   },
   {

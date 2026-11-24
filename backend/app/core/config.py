@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     github_default_repo: str = ""
     github_api_url: str = "https://api.github.com"
 
+    # Sentry connector (Ask tab): what is failing in real traffic, not just in
+    # the request the user tested. Server-side token, read-only.
+    sentry_auth_token: str = ""
+    sentry_org: str = ""
+    sentry_project: str = ""
+    sentry_api_url: str = "https://sentry.io/api/0"
+
     # Google Workspace MCP (Ask tab): Calendar + Gmail through Google's
     # official remote MCP servers. OAuth 2.0 per user; the refresh tokens
     # are encrypted with MCP_TOKEN_ENCRYPTION_KEY before storage.

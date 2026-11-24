@@ -6,6 +6,7 @@ import type {
   ConnectionsResponse,
   GitHubConnection,
   GoogleConnection,
+  SentryConnection,
 } from "../types";
 
 /**
@@ -44,6 +45,7 @@ export function AskSidebar({
 
   const github = connections?.github ?? null;
   const google = connections?.google ?? null;
+  const sentry = connections?.sentry ?? null;
   const githubApp = MCP_APPS.find((app) => app.id === "github") ?? MCP_APPS[0];
   const statusUnavailable = !connections && Boolean(connectionsError);
   const selected = MCP_APPS.find((app) => app.id === selectedId) ?? null;
@@ -79,12 +81,14 @@ export function AskSidebar({
 
   function isConnected(app: McpApp): boolean {
     if (app.id === "github") return Boolean(github?.connected);
+    if (app.id === "sentry") return Boolean(sentry?.connected);
     if (isGoogleApp(app)) return Boolean(google?.connected);
     return false;
   }
 
   function providerError(app: McpApp): string | null {
     if (app.id === "github") return github?.error ?? null;
+    if (app.id === "sentry") return sentry?.error ?? null;
     if (isGoogleApp(app)) return google?.error ?? null;
     return null;
   }
@@ -107,6 +111,10 @@ export function AskSidebar({
 
   function accountFor(app: McpApp): string | null {
     if (app.id === "github") return github?.account ? `@${github.account}` : null;
+    if (app.id === "sentry")
+      return sentry?.org && sentry?.project
+        ? `${sentry.org}/${sentry.project}`
+        : null;
     if (isGoogleApp(app)) return google?.account ?? null;
     return null;
   }
@@ -115,13 +123,13 @@ export function AskSidebar({
 
   function emptyConnectedCopy(): string {
     if (statusUnavailable) return "Connection status unavailable — is the backend running?";
-    if (github?.error || google?.error) {
+    if (github?.error || google?.error || sentry?.error) {
       return "A connection needs attention. Open the app for details.";
     }
-    if (github?.configured || google?.configured) {
+    if (github?.configured || google?.configured || sentry?.configured) {
       return "No apps connected yet. Open an app below to connect it.";
     }
-    return "No apps connected yet. Add GITHUB_PAT or Google OAuth credentials to the backend .env.";
+    return "No apps connected yet. Add GITHUB_PAT, Sentry, or Google OAuth credentials to the backend .env.";
   }
 
   return (
@@ -170,6 +178,7 @@ export function AskSidebar({
             onBack={() => setSelectedId(null)}
             github={github}
             google={google}
+            sentry={sentry}
             statusUnavailable={statusUnavailable}
             onConnectGoogle={onConnectGoogle}
             onDisconnectGoogle={onDisconnectGoogle}
@@ -269,9 +278,9 @@ export function AskSidebar({
             <p className="border-t border-slate-100 px-4 py-2.5 text-[10px] leading-snug text-slate-400">
               {statusUnavailable
                 ? "Connection status unavailable — start the backend to see real state."
-                : github?.connected || google?.connected
+                : github?.connected || google?.connected || sentry?.connected
                   ? "Read-only tools only. Write actions need explicit approval."
-                  : github?.configured || google?.configured
+                  : github?.configured || google?.configured || sentry?.configured
                     ? "Open an app to connect it. Credentials are configured on the backend."
                     : "Preview — add provider credentials to the backend .env."}
             </p>
@@ -370,6 +379,7 @@ function AppDetail({
   onBack,
   github,
   google,
+  sentry,
   statusUnavailable,
   onConnectGoogle,
   onDisconnectGoogle,
@@ -379,33 +389,39 @@ function AppDetail({
   onBack: () => void;
   github: GitHubConnection | null;
   google: GoogleConnection | null;
+  sentry: SentryConnection | null;
   statusUnavailable: boolean;
   onConnectGoogle: () => void;
   onDisconnectGoogle: () => void;
   googleBusy: boolean;
 }) {
   const isGithub = app.id === "github";
+  const isSentry = app.id === "sentry";
   const googleApp = app.id === "google-calendar" ? "calendar" : app.id === "gmail" ? "gmail" : null;
   const isGoogle = googleApp !== null;
 
-  const tools: ConnectionTool[] =
-    isGithub && github?.tools?.length
-      ? github.tools
-      : isGoogle && google?.tools?.length
-        ? google.tools.filter((tool) => tool.app === googleApp)
-        : app.tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            write: Boolean(tool.write),
-            available: !tool.write,
-          }));
+  // One connection object per app keeps the rest of the panel honest and short.
+  const connection: GitHubConnection | GoogleConnection | SentryConnection | null =
+    isGithub ? github : isGoogle ? google : isSentry ? sentry : null;
 
-  const connected = isGithub ? Boolean(github?.connected) : Boolean(google?.connected);
-  const providerError = isGithub ? github?.error : isGoogle ? google?.error : null;
-  const rawAccount = isGithub ? github?.account : google?.account;
+  const tools: ConnectionTool[] =
+    connection?.tools?.length
+      ? isGoogle
+        ? connection.tools.filter((tool) => tool.app === googleApp)
+        : connection.tools
+      : app.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          write: Boolean(tool.write),
+          available: !tool.write,
+        }));
+
+  const connected = Boolean(connection?.connected);
+  const providerError = connection?.error ?? null;
+  const rawAccount = connection?.account;
   // GitHub accounts read as @handle everywhere in the UI.
   const account = rawAccount ? (isGithub ? `@${rawAccount}` : rawAccount) : null;
-  const configured = isGithub ? Boolean(github?.configured) : Boolean(google?.configured);
+  const configured = Boolean(connection?.configured);
 
   const status = connected
     ? {
@@ -462,6 +478,15 @@ function AppDetail({
         </p>
       )}
 
+      {isSentry && sentry?.org && sentry?.project && (
+        <p className="mt-2 text-[10px] text-slate-500">
+          Project:{" "}
+          <span className="font-mono font-semibold text-slate-700">
+            {sentry.org}/{sentry.project}
+          </span>
+        </p>
+      )}
+
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
           Tools
@@ -511,7 +536,9 @@ function AppDetail({
             <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
               {isGoogle
                 ? "Google tokens are stored encrypted. Read-only in Ask — write actions need the approval flow."
-                : "Using the server-side GITHUB_PAT. Read-only in Ask — write actions need the approval flow."}
+                : isSentry
+                  ? "Using the server-side SENTRY_AUTH_TOKEN. Read-only: issues and events only."
+                  : "Using the server-side GITHUB_PAT. Read-only in Ask — write actions need the approval flow."}
             </p>
             {isGoogle && (
               <button
@@ -532,7 +559,7 @@ function AppDetail({
               disabled={!isGoogle || googleBusy}
               className="w-full cursor-not-allowed rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-bold text-white opacity-70"
             >
-              {isGoogle ? "Reconnect with Google" : "Reconnect needed"}
+              {isGoogle ? "Reconnect with Google" : isSentry ? "Check Sentry settings" : "Reconnect needed"}
             </button>
             <p className="mt-1.5 text-[10px] leading-snug text-amber-700">
               {providerError}
@@ -561,6 +588,30 @@ function AppDetail({
                 : configured
                   ? "Read-only access to Calendar and Gmail. You can disconnect at any time."
                   : "Google OAuth is not configured on the backend yet."}
+            </p>
+          </>
+        ) : isSentry ? (
+          <>
+            <button
+              type="button"
+              disabled
+              title={
+                statusUnavailable
+                  ? "Connection status unavailable — is the backend running?"
+                  : configured
+                    ? "Sentry is configured but not verified yet. Refresh in a moment."
+                    : "Add SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT to the backend .env, then restart the backend"
+              }
+              className="w-full cursor-not-allowed rounded-lg bg-purple-600 px-3 py-2 text-[11px] font-bold text-white opacity-50"
+            >
+              {configured ? "Checking Sentry…" : "Needs setup"}
+            </button>
+            <p className="mt-1.5 text-[10px] leading-snug text-slate-400">
+              {statusUnavailable
+                ? "Connection status unavailable — start the backend, then refresh this page."
+                : configured
+                  ? "Sentry is configured but has not been verified yet."
+                  : "Add SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT to the backend .env, then restart the backend."}
             </p>
           </>
         ) : (

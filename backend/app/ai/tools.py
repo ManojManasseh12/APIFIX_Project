@@ -277,6 +277,116 @@ def format_tool_result(tool_name: str, result: dict) -> str:
         if not items:
             return head + "."
         return head + ": " + "; ".join(item.get("repo") or "?" for item in items[:8])
+    if tool_name == "github_file":
+        if result.get("kind") == "directory":
+            entries = result.get("entries") or []
+            head = (
+                f"{result.get('path')}/ in {result.get('repo')} — "
+                f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}"
+            )
+            if not entries:
+                return head + "."
+            return head + ": " + ", ".join(
+                str(entry.get("name")) for entry in entries[:10]
+            )
+        note = " (truncated)" if result.get("truncated") else ""
+        return (
+            f"{result.get('path')} in {result.get('repo')} — "
+            f"{result.get('lines')} lines{note}:\n{(result.get('content') or '')[:1200]}"
+        )
+    if tool_name == "github_spec":
+        endpoints = result.get("endpoints") or []
+        title = " ".join(
+            part
+            for part in (result.get("title") or "OpenAPI spec", result.get("version"))
+            if part
+        )
+        head = (
+            f"{title} ({result.get('path')}) — {len(endpoints)} endpoint"
+            f"{'' if len(endpoints) == 1 else 's'}"
+        )
+        if not endpoints:
+            return head + "."
+        return head + ": " + "; ".join(
+            f"{item.get('method')} {item.get('path')}" for item in endpoints[:12]
+        )
+    if tool_name == "github_commits":
+        items = result.get("items") or []
+        where = f" touching {result['path']}" if result.get("path") else ""
+        head = (
+            f"{len(items)} commit{'' if len(items) == 1 else 's'}{where} "
+            f"in {result.get('repo')}"
+        )
+        if not items:
+            return head + "."
+        return head + ": " + "; ".join(
+            f"{item.get('sha')} {item.get('message')}" for item in items[:8]
+        )
+    if tool_name == "github_ci":
+        items = result.get("items") or []
+        where = f" on {result['branch']}" if result.get("branch") else ""
+        head = (
+            f"{len(items)} workflow run{'' if len(items) == 1 else 's'}{where} "
+            f"for {result.get('repo')} — {result.get('failed', 0)} failed"
+        )
+        if not items:
+            return head + "."
+        return head + ": " + "; ".join(
+            f"{item.get('name')} → {item.get('conclusion') or item.get('status')}"
+            for item in items[:8]
+        )
+    if tool_name == "sentry_issues":
+        issues = result.get("issues") or []
+        head = (
+            f"{len(issues)} unresolved issue{'' if len(issues) == 1 else 's'} "
+            f"in {result.get('org')}/{result.get('project')} "
+            f"({result.get('period')})"
+        )
+        if not issues:
+            return head + "."
+        return head + ": " + "; ".join(
+            f"{issue.get('short_id') or issue.get('id')} {issue.get('title')} "
+            f"({issue.get('count')} events)"
+            for issue in issues[:6]
+        )
+    if tool_name == "sentry_event":
+        issue = result.get("issue") or {}
+        event = result.get("event") or {}
+        exception = event.get("exception") or {}
+        request = event.get("request") or {}
+        head = (
+            f"{issue.get('short_id') or issue.get('id')}: "
+            f"{exception.get('type') or 'event'}"
+            + (f": {exception['value']}" if exception.get("value") else "")
+        )
+        frames = event.get("frames") or []
+        if frames:
+            top = frames[0]
+            head += (
+                f" at {top.get('filename')}:{top.get('line')} "
+                f"({top.get('function')})"
+            )
+        if request.get("url"):
+            head += (
+                f". Request {request.get('method') or ''} {request['url']}".rstrip()
+            )
+            if request.get("status_code"):
+                head += f" → {request['status_code']}"
+        return head
+    if tool_name == "sentry_events":
+        events = result.get("events") or []
+        head = (
+            f"{len(events)} event{'' if len(events) == 1 else 's'} for "
+            f"{result.get('endpoint') or result.get('query')} "
+            f"in {result.get('org')}/{result.get('project')}"
+        )
+        if not events:
+            return head + "."
+        return head + ": " + "; ".join(
+            f"{event.get('timestamp') or '?'} — "
+            f"{event.get('title') or event.get('event_id')}"
+            for event in events[:6]
+        )
     if tool_name in ("gcal_events", "gcal_search"):
         events = result.get("events") or []
         when = {

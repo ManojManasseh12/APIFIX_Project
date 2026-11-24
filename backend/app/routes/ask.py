@@ -21,8 +21,9 @@ from app.ai.tools import (
     convert_epoch,
 )
 from app.core.auth import get_current_user
-from app.connectors import github
+from app.connectors import github, sentry
 from app.connectors.github import GitHubError
+from app.connectors.sentry import SentryError
 from app.mcp import google
 from app.mcp.google import GoogleError
 from app.core.errors import AllProvidersFailed, StreamInterrupted
@@ -57,6 +58,32 @@ _TOOL_EXECUTORS = {
     ),
     "github_repo": lambda args: github.repo_summary(args.get("repo", "")),
     "github_repos": lambda args: github.list_repos(args.get("limit", 10)),
+    "github_file": lambda args: github.read_file(
+        args.get("repo", ""), args.get("path", ""), args.get("ref", "")
+    ),
+    "github_spec": lambda args: github.openapi_spec(
+        args.get("repo", ""), args.get("path", "")
+    ),
+    "github_commits": lambda args: github.recent_commits(
+        args.get("repo", ""), args.get("path", ""), args.get("limit", 10)
+    ),
+    "github_ci": lambda args: github.workflow_runs(
+        args.get("repo", ""), args.get("branch", ""), args.get("limit", 5)
+    ),
+    "sentry_issues": lambda args: sentry.list_issues(
+        args.get("query", "is:unresolved"),
+        args.get("period", "14d"),
+        args.get("limit", 10),
+    ),
+    "sentry_event": lambda args: sentry.get_issue_event(
+        args.get("issue_id", "")
+    ),
+    "sentry_events": lambda args: sentry.search_events(
+        args.get("endpoint", ""),
+        args.get("query", ""),
+        args.get("period", "14d"),
+        args.get("limit", 5),
+    ),
     "github_write": lambda args: _github_write_blocked(args),
 }
 
@@ -105,7 +132,7 @@ async def _execute_tool(tool_name: str, args: dict, user_id: str | None = None) 
         result = executor(args)
         if hasattr(result, "__await__"):
             result = await result
-    except GitHubError as exc:
+    except (GitHubError, SentryError) as exc:
         # The connector's messages are already user-facing and actionable.
         raise ToolError(str(exc)) from exc
     return result
@@ -141,6 +168,48 @@ def _tool_label(tool_name: str, result: dict) -> str:
         return f"GitHub · {result.get('repo')} · ★ {result.get('stars')}"
     if tool_name == "github_repos":
         return f"GitHub · {_count(int(result.get('count', 0)), 'repository')}"
+    if tool_name == "github_file":
+        if result.get("kind") == "directory":
+            return (
+                f"GitHub · {result.get('path')}/ · "
+                f"{_count(int(result.get('count', 0)), 'entry')}"
+            )
+        suffix = " (truncated)" if result.get("truncated") else ""
+        return (
+            f"GitHub · {result.get('path')} · "
+            f"{_count(int(result.get('lines') or 0), 'line')}{suffix}"
+        )
+    if tool_name == "github_spec":
+        return (
+            f"GitHub · {result.get('path')} · "
+            f"{_count(int(result.get('count', 0)), 'endpoint')}"
+        )
+    if tool_name == "github_commits":
+        where = f" · {result['path']}" if result.get("path") else ""
+        return (
+            f"GitHub · {_count(int(result.get('count', 0)), 'commit')}{where}"
+        )
+    if tool_name == "github_ci":
+        where = f" · {result['branch']}" if result.get("branch") else ""
+        return (
+            f"GitHub · {_count(int(result.get('count', 0)), 'run')}{where} · "
+            f"{int(result.get('failed') or 0)} failed"
+        )
+    if tool_name == "sentry_issues":
+        return (
+            f"Sentry · {_count(int(result.get('count', 0)), 'issue')} · "
+            f"{result.get('project')}"
+        )
+    if tool_name == "sentry_event":
+        issue = result.get("issue") or {}
+        event = result.get("event") or {}
+        kind = (event.get("exception") or {}).get("type") or "event"
+        return f"Sentry · {issue.get('short_id') or issue.get('id')} · {kind}"
+    if tool_name == "sentry_events":
+        where = f" · {result['endpoint']}" if result.get("endpoint") else ""
+        return (
+            f"Sentry · {_count(int(result.get('count', 0)), 'event')}{where}"
+        )
     if tool_name in ("gcal_events", "gcal_search"):
         when = {
             "today": "today",
@@ -178,6 +247,20 @@ def _tool_preview_label(tool_name: str, args: dict) -> str:
         return f"github · {args.get('repo') or 'repository'}"
     if tool_name == "github_repos":
         return "github · repositories"
+    if tool_name == "github_file":
+        return f"github · {args.get('path') or 'file'}"
+    if tool_name == "github_spec":
+        return f"github · {args.get('path') or 'openapi spec'}"
+    if tool_name == "github_commits":
+        return f"github · {args.get('path') or args.get('repo') or 'default repo'}"
+    if tool_name == "github_ci":
+        return f"github · {args.get('branch') or args.get('repo') or 'default repo'}"
+    if tool_name == "sentry_issues":
+        return f"sentry · issues · {args.get('period') or '14d'}"
+    if tool_name == "sentry_event":
+        return f"sentry · issue {args.get('issue_id') or '?'}"
+    if tool_name == "sentry_events":
+        return f"sentry · {args.get('endpoint') or 'events'}"
     if tool_name == "github_write":
         return f"github · {str(args.get('action') or 'write').replace('_', ' ')}"
     if tool_name == "gcal_events":

@@ -29,17 +29,27 @@ function appForTool(tool: string): string | null {
   if (tool.startsWith("gmail")) return "gmail";
   if (tool.startsWith("gcal")) return "google-calendar";
   if (tool.startsWith("github")) return "github";
+  if (tool.startsWith("sentry")) return "sentry";
   return null;
 }
 
-function titleFor(appId: string | null): string {
+function titleFor(appId: string | null, tool: string): string {
   switch (appId) {
     case "gmail":
       return "Checking your Gmail";
     case "google-calendar":
       return "Reading your calendar";
     case "github":
+      // The GitHub tools answer different questions; say which one ran.
+      if (tool === "github_file") return "Reading your repository";
+      if (tool === "github_spec") return "Reading your API spec";
+      if (tool === "github_commits") return "Reading recent commits";
+      if (tool === "github_ci") return "Checking your CI runs";
       return "Looking at GitHub";
+    case "sentry":
+      if (tool === "sentry_events") return "Searching Sentry events";
+      if (tool === "sentry_event") return "Reading a Sentry event";
+      return "Checking Sentry issues";
     default:
       return "Running a live helper";
   }
@@ -61,7 +71,7 @@ export function activityFor(
       ? label.split(" · ").slice(1).join(" · ")
       : label
     : null;
-  return { app, title: titleFor(appId), detail };
+  return { app, title: titleFor(appId, tool), detail };
 }
 
 export function AskActivityIndicator({

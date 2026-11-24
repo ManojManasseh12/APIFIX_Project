@@ -20,6 +20,18 @@ const diagnosis = {
   truncated: false,
 };
 
+// Default Sentry state for sidebar mocks: not configured, nothing invented.
+const sentryOff = {
+  configured: false,
+  connected: false,
+  account: null,
+  org: null,
+  project: null,
+  source: "auth_token",
+  error: null,
+  tools: [],
+};
+
 async function mockDiagnosis(page: Page, patch: Record<string, unknown>) {
   await page.route("**/api/diagnose", async (route: Route) => {
     await route.fulfill({
@@ -345,6 +357,7 @@ test("connections sidebar lists MCP apps and stays honest about preview", async 
           apps: ["calendar", "gmail"],
           scopes: [],
         },
+        sentry: sentryOff,
       },
     })
   );
@@ -356,6 +369,7 @@ test("connections sidebar lists MCP apps and stays honest about preview", async 
   await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
   await expect(page.getByRole("button", { name: /GitHub/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Google Calendar/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Sentry/ })).toBeVisible();
   await expect(page.getByText(/No apps connected yet/)).toBeVisible();
 
   // Collapse → title hidden, expand → title back (state is real, not cosmetic).
@@ -379,6 +393,15 @@ test("connections sidebar lists MCP apps and stays honest about preview", async 
   // Back returns to the list.
   await page.getByRole("button", { name: "← All apps" }).click();
   await expect(page.getByRole("button", { name: /Google Calendar/ })).toBeVisible();
+
+  // Sentry without credentials is honest: a disabled "Needs setup" button.
+  await page.getByRole("button", { name: /Sentry/ }).click();
+  await expect(
+    page.getByRole("button", { name: "Needs setup", exact: true })
+  ).toBeDisabled();
+  await expect(
+    page.getByText(/Add SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT/)
+  ).toBeVisible();
 });
 
 test("connections sidebar shows a verified GitHub connection", async ({ page }) => {
@@ -410,6 +433,7 @@ test("connections sidebar shows a verified GitHub connection", async ({ page }) 
             },
           ],
         },
+        sentry: sentryOff,
       },
     })
   );
@@ -488,6 +512,7 @@ test("connections sidebar shows a connected Google account", async ({ page }) =>
             },
           ],
         },
+        sentry: sentryOff,
       },
     })
   );
@@ -519,4 +544,81 @@ test("connections sidebar shows a connected Google account", async ({ page }) =>
   await expect(page.getByText("search_threads")).toBeVisible();
   await expect(page.getByText("list_events")).toHaveCount(0);
   await expect(page.getByText("create_draft")).toBeVisible();
+});
+
+test("connections sidebar shows a connected Sentry project", async ({ page }) => {
+  await page.route("**/api/connections", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        github: {
+          configured: false,
+          connected: false,
+          account: null,
+          name: null,
+          avatar_url: null,
+          default_repo: null,
+          source: "personal_access_token",
+          error: null,
+          tools: [],
+        },
+        google: {
+          configured: false,
+          connected: false,
+          account: null,
+          expires_at: null,
+          error: null,
+          tools: [],
+          apps: ["calendar", "gmail"],
+          scopes: [],
+        },
+        sentry: {
+          configured: true,
+          connected: true,
+          account: "acme",
+          org: "acme",
+          project: "checkout-api",
+          source: "auth_token",
+          error: null,
+          tools: [
+            {
+              name: "list_issues",
+              description: "Unresolved issues in the project, newest first",
+              write: false,
+              available: true,
+            },
+            {
+              name: "get_issue_event",
+              description: "Latest event for one issue",
+              write: false,
+              available: true,
+            },
+            {
+              name: "search_events",
+              description: "Events matching an endpoint URL",
+              write: false,
+              available: true,
+            },
+          ],
+        },
+      },
+    })
+  );
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ask API" }).click();
+
+  // The real org/project from the token, not a hardcoded label.
+  await expect(page.getByText("acme/checkout-api").first()).toBeVisible();
+
+  await page.getByRole("button", { name: /Sentry/ }).first().click();
+  await expect(page.getByText("Project:")).toBeVisible();
+  await expect(page.getByText("acme/checkout-api").first()).toBeVisible();
+  await expect(page.getByText("list_issues")).toBeVisible();
+  await expect(page.getByText("search_events")).toBeVisible();
+  // Read-only: no write tool and no approval badge.
+  await expect(page.getByText("⚠ needs approval")).toHaveCount(0);
+  await expect(
+    page.getByText(/Using the server-side SENTRY_AUTH_TOKEN/)
+  ).toBeVisible();
 });

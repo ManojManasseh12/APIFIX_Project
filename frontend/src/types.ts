@@ -96,9 +96,25 @@ export type GoogleConnection = {
   scopes: string[];
 };
 
+/**
+ * Sentry connection state. configured = token + org + project exist,
+ * connected = Sentry accepted the token.
+ */
+export type SentryConnection = {
+  configured: boolean;
+  connected: boolean;
+  account: string | null;
+  org: string | null;
+  project: string | null;
+  source: string;
+  error: string | null;
+  tools: ConnectionTool[];
+};
+
 export type ConnectionsResponse = {
   github: GitHubConnection;
   google: GoogleConnection;
+  sentry: SentryConnection;
 };
 
 export type Patch = {

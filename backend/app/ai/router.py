@@ -36,6 +36,9 @@ Route = Literal[
     "tool:github_spec",
     "tool:github_commits",
     "tool:github_ci",
+    "tool:sentry_issues",
+    "tool:sentry_event",
+    "tool:sentry_events",
     "tool:github_write",
     "tool:gcal_events",
     "tool:gcal_search",
@@ -57,6 +60,9 @@ _TOOL_ROUTES = (
     "tool:github_spec",
     "tool:github_commits",
     "tool:github_ci",
+    "tool:sentry_issues",
+    "tool:sentry_event",
+    "tool:sentry_events",
     "tool:github_write",
     "tool:gcal_events",
     "tool:gcal_search",
@@ -191,6 +197,39 @@ _GITHUB_BRANCH_WORDS = {
     "the", "my", "our", "a", "an", "this", "that", "default", "which", "what",
     "github", "git", "actions", "ci", "it",
 }
+
+# Sentry: production errors. Only route when Sentry is named, or when the
+# question is clearly about recent production failures (or a concrete
+# endpoint), so "what is a 500 error?" stays in the knowledge base.
+_SENTRY_MARKERS = re.compile(r"\bsentry\b|\berror tracking\b", re.IGNORECASE)
+# "What is Sentry?" is documentation; "what are the latest Sentry errors?" is
+# data. The difference is whether Sentry is the subject of the question.
+_SENTRY_DEFINITION = re.compile(
+    r"^\s*(?:what(?:'s| is| are)|explain|define|how\s+does)\s+"
+    r"(?:the\s+)?sentry\b",
+    re.IGNORECASE,
+)
+_SENTRY_PROD = re.compile(
+    r"\b(?:production|prod|live)\b[^.!?]{0,30}"
+    r"\b(?:errors?|exceptions?|crashes?|failures?|fail(?:ing|ed)?)\b"
+    r"|\b(?:errors?|exceptions?|crashes?|failures?|fail(?:ing|ed)?)\b"
+    r"[^.!?]{0,30}\b(?:production|prod|live)\b",
+    re.IGNORECASE,
+)
+_SENTRY_RECENT = re.compile(
+    r"\b(?:latest|recent|unresolved|open|new|today|this week)\b", re.IGNORECASE
+)
+_SENTRY_ISSUE_ID = re.compile(r"\b(?:issue|event)\s*#?\s*(\d{3,})\b", re.IGNORECASE)
+_SENTRY_STACK = re.compile(
+    r"\bstack ?trace\b|\btraceback\b|\bexception\b", re.IGNORECASE
+)
+# A URL path, not a protocol or a date: "/api/orders", "/users/{id}".
+_SENTRY_ENDPOINT = re.compile(r"(?<![\w:/])/(?:[\w{}.-]+/)*[\w{}.-]+")
+_SENTRY_PERIODS = (
+    (re.compile(r"\btoday\b|\blast 24 hours?\b", re.IGNORECASE), "24h"),
+    (re.compile(r"\bthis week\b|\blast 7 days?\b", re.IGNORECASE), "7d"),
+    (re.compile(r"\bthis month\b|\blast 30 days?\b", re.IGNORECASE), "30d"),
+)
 
 # Google Calendar / Gmail: only personal data questions. Anything about the
 # APIs themselves (scopes, OAuth, integration) stays in the knowledge base.
@@ -436,6 +475,80 @@ def _github_decision(question: str) -> RouteDecision | None:
     return RouteDecision(route="tool:github_repo", via="rule", args={"repo": repo})
 
 
+def _sentry_period(question: str) -> str:
+    """The time window a Sentry question asks about (default: 14 days)."""
+    for pattern, period in _SENTRY_PERIODS:
+        if pattern.search(question):
+            return period
+    return "14d"
+
+
+def _sentry_decision(question: str) -> RouteDecision | None:
+    """Route production-error questions to Sentry; docs stay in RAG."""
+    from app.connectors import sentry
+
+    mentions = bool(_SENTRY_MARKERS.search(question))
+    if not mentions and not sentry.is_configured():
+        # Without a token, only an explicit "sentry" question is worth
+        # routing — it produces the actionable "add SENTRY_AUTH_TOKEN" error.
+        return None
+
+    # "What is Sentry?" is a documentation question. It stays in RAG unless
+    # the user also asks about a concrete issue or endpoint.
+    if _SENTRY_DEFINITION.search(question) and not (
+        _SENTRY_ENDPOINT.search(question) or _SENTRY_ISSUE_ID.search(question)
+    ):
+        return None
+
+    issue_id = _SENTRY_ISSUE_ID.search(question)
+    endpoint_match = _SENTRY_ENDPOINT.search(question)
+    endpoint = endpoint_match.group(0) if endpoint_match else ""
+    period = _sentry_period(question)
+
+    if issue_id and (mentions or _SENTRY_STACK.search(question)):
+        return RouteDecision(
+            route="tool:sentry_event",
+            via="rule",
+            args={"issue_id": issue_id.group(1)},
+        )
+
+    if mentions:
+        if endpoint:
+            return RouteDecision(
+                route="tool:sentry_events",
+                via="rule",
+                args={"endpoint": endpoint, "period": period},
+            )
+        return RouteDecision(
+            route="tool:sentry_issues",
+            via="rule",
+            args={"query": "is:unresolved", "period": period, "limit": 10},
+        )
+
+    # No "sentry" word: require a production failure plus either a concrete
+    # endpoint or "latest/recent". "How do I fix production errors?" stays RAG.
+    if _SENTRY_PROD.search(question) and (
+        endpoint or _SENTRY_RECENT.search(question)
+    ):
+        if endpoint:
+            return RouteDecision(
+                route="tool:sentry_events",
+                via="rule",
+                args={"endpoint": endpoint, "period": period},
+            )
+        return RouteDecision(
+            route="tool:sentry_issues",
+            via="rule",
+            args={
+                "query": "is:unresolved level:error",
+                "period": period,
+                "limit": 10,
+            },
+        )
+
+    return None
+
+
 def _calendar_range(question: str) -> str:
     if re.search(r"\btoday\b", question, re.IGNORECASE):
         return "today"
@@ -594,11 +707,19 @@ _ROUTE_PROMPT = (
     "(list a repository's issues), 'tool:github_prs' (list a repository's pull "
     "requests), 'tool:github_repo' (details of one named repository), "
     "'tool:github_repos' (list the user's repositories), "
+    "'tool:github_file' (read a named file from a repository), "
+    "'tool:github_spec' (read a repository's OpenAPI/Swagger spec), "
+    "'tool:github_commits' (recent commits in a repository), "
+    "'tool:github_ci' (recent GitHub Actions/CI runs), "
+    "'tool:sentry_issues' (the project's open Sentry issues), "
+    "'tool:sentry_event' (the latest event of one Sentry issue), "
+    "'tool:sentry_events' (Sentry events matching an endpoint URL), "
     "'tool:gcal_events' (the user's own calendar events), "
     "'tool:gcal_search' (search the user's own calendar), or "
     "'tool:gmail_search' (search the user's own Gmail). Questions ABOUT GitHub "
     "itself (what Actions are, how webhooks work) are 'rag', and so are "
-    "questions about the Google APIs (scopes, OAuth, integration). Answer with "
+    "questions about the Google APIs (scopes, OAuth, integration) and about "
+    "error tracking in general (what a stack trace is). Answer with "
     'ONLY a JSON object: {"route": "..."}. No explanation.'
 )
 
@@ -662,12 +783,48 @@ def _nvidia_args(route: str, question: str) -> dict:
         return args
     if route == "tool:github_repos":
         return {"limit": 10}
+    if route in (
+        "tool:github_file",
+        "tool:github_spec",
+        "tool:github_commits",
+        "tool:github_ci",
+    ):
+        from app.connectors.github import parse_repo
+
+        path = _github_file_path(question)
+        repo_text = question.replace(path, " ") if path else question
+        args = {"repo": parse_repo(repo_text) or ""}
+        if route == "tool:github_file":
+            args["path"] = path or ""
+        elif route == "tool:github_spec":
+            args["path"] = path or ""
+        elif route == "tool:github_commits":
+            args["path"] = path or ""
+            args["limit"] = 10
+        else:
+            args["branch"] = _github_branch(question)
+        return args
     if route == "tool:github_write":
         return {
             "repo": "",
             "action": "comment_on_issue"
             if re.search(r"\bcomment", question, re.IGNORECASE)
             else "create_issue",
+        }
+    if route == "tool:sentry_issues":
+        return {
+            "query": "is:unresolved",
+            "period": _sentry_period(question),
+            "limit": 10,
+        }
+    if route == "tool:sentry_event":
+        match = _SENTRY_ISSUE_ID.search(question)
+        return {"issue_id": match.group(1) if match else ""}
+    if route == "tool:sentry_events":
+        match = _SENTRY_ENDPOINT.search(question)
+        return {
+            "endpoint": match.group(0) if match else "",
+            "period": _sentry_period(question),
         }
     if route == "tool:gcal_events":
         return {"range": _calendar_range(question)}
@@ -708,6 +865,11 @@ async def route_question(question: str) -> RouteDecision:
     google = _google_decision(question)
     if google is not None:
         return google
+    # Production-error questions ("why did /api/orders fail in prod?") must
+    # beat the generic "api"/"endpoint" words too.
+    sentry_decision = _sentry_decision(question)
+    if sentry_decision is not None:
+        return sentry_decision
     if _API_MARKERS.search(question):
         return RouteDecision(route="rag", via="rule")
 

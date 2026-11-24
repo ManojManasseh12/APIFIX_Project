@@ -268,6 +268,9 @@ def normalize_repo(value: str) -> str:
 _REPO_STOPWORDS = {
     "and", "or", "vs", "to", "from", "in", "of", "the",
     "application", "text", "content", "multipart", "www", "api", "docs",
+    # Protocol / format pairs that look like owner/repo: "CI/CD", "TCP/IP".
+    "ci", "cd", "cicd", "tcp", "udp", "ip", "tls", "ssl", "dns", "http",
+    "https", "grpc", "json", "yaml", "xml", "csv", "html", "css", "sql",
 }
 _HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 _URL_REPO = re.compile(

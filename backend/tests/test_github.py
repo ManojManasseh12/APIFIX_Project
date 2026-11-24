@@ -1,5 +1,7 @@
 """GitHub connector: status, read tools, routing, and honest errors."""
 
+import base64
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -115,6 +117,92 @@ def github_http(monkeypatch):
                         "html_url": "https://github.com/test-user/api",
                     }
                 ],
+            )
+        if "/contents/" in path:
+            if path == "/repos/octocat/Hello-World/contents/src/main.py":
+                body = "print('hello')\n" * 300  # 4,200 chars → truncated
+                return httpx.Response(
+                    200,
+                    json={
+                        "type": "file",
+                        "encoding": "base64",
+                        "size": len(body),
+                        "content": base64.b64encode(body.encode()).decode(),
+                        "html_url": "https://github.com/octocat/Hello-World/blob/main/src/main.py",
+                    },
+                )
+            if path == "/repos/octocat/Hello-World/contents/src":
+                return httpx.Response(
+                    200,
+                    json=[
+                        {"name": "main.py", "type": "file", "size": 4200},
+                        {"name": "utils", "type": "dir", "size": 0},
+                    ],
+                )
+            if path == "/repos/octocat/Hello-World/contents/openapi.yaml":
+                spec = (
+                    "openapi: 3.0.0\n"
+                    "info:\n  title: Demo API\n  version: 1.0.0\n"
+                    "servers:\n  - url: https://api.example.test\n"
+                    "paths:\n"
+                    "  /users:\n"
+                    "    get:\n      summary: List users\n"
+                    "    post:\n      summary: Create a user\n"
+                    "  /users/{id}:\n"
+                    "    get:\n      summary: Get one user\n"
+                )
+                return httpx.Response(
+                    200,
+                    json={
+                        "type": "file",
+                        "encoding": "base64",
+                        "size": len(spec),
+                        "content": base64.b64encode(spec.encode()).decode(),
+                        "html_url": "https://github.com/octocat/Hello-World/blob/main/openapi.yaml",
+                    },
+                )
+            return httpx.Response(404, json={"message": "Not Found"})
+        if path == "/repos/octocat/Hello-World/commits":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "sha": "abcdef1234567890",
+                        "commit": {
+                            "message": "Fix 401 handling in the orders endpoint\n\nBody",
+                            "author": {"name": "Alice", "date": "2026-02-01T10:00:00Z"},
+                        },
+                        "author": {"login": "alice"},
+                        "html_url": "https://github.com/octocat/Hello-World/commit/abcdef1",
+                    }
+                ],
+            )
+        if path == "/repos/octocat/Hello-World/actions/runs":
+            return httpx.Response(
+                200,
+                json={
+                    "total_count": 2,
+                    "workflow_runs": [
+                        {
+                            "name": "CI",
+                            "head_branch": "main",
+                            "event": "push",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "created_at": "2026-02-02T10:00:00Z",
+                            "html_url": "https://github.com/octocat/Hello-World/actions/runs/1",
+                        },
+                        {
+                            "name": "CI",
+                            "head_branch": "main",
+                            "event": "push",
+                            "status": "completed",
+                            "conclusion": "success",
+                            "created_at": "2026-02-01T10:00:00Z",
+                            "html_url": "https://github.com/octocat/Hello-World/actions/runs/2",
+                        },
+                    ],
+                },
             )
         if path.startswith("/repos/"):
             return httpx.Response(
@@ -374,3 +462,267 @@ def test_github_results_read_like_a_sentence():
         },
     )
     assert "★ 42" in summary and "Go" in summary and "main" in summary
+
+
+# ── Repository contents ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_read_file_decodes_and_truncates(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+    result = await github.read_file("octocat/Hello-World", "src/main.py")
+
+    assert result["kind"] == "file"
+    assert result["truncated"] is True
+    assert len(result["content"]) == github._MAX_FILE_CHARS
+    assert result["lines"] == 301
+    assert github_http[0]["path"] == "/repos/octocat/Hello-World/contents/src/main.py"
+
+
+@pytest.mark.asyncio
+async def test_read_file_lists_a_directory(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+    result = await github.read_file("octocat/Hello-World", "src")
+
+    assert result["kind"] == "directory"
+    assert result["count"] == 2
+    assert result["entries"][0]["name"] == "main.py"
+
+
+@pytest.mark.asyncio
+async def test_read_file_refuses_secret_files(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+
+    with pytest.raises(github.GitHubError, match="secrets file"):
+        await github.read_file("octocat/Hello-World", ".env")
+
+    # Refused before any request: the credential never leaves the server.
+    assert github_http == []
+
+
+@pytest.mark.asyncio
+async def test_read_file_allows_env_examples(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+
+    with pytest.raises(github.GitHubError, match="was not found"):
+        await github.read_file("octocat/Hello-World", ".env.example")
+
+    assert github_http, "the example file should be requested, not blocked"
+
+
+@pytest.mark.asyncio
+async def test_read_file_missing_is_explained(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+
+    with pytest.raises(github.GitHubError, match="was not found"):
+        await github.read_file("octocat/Hello-World", "src/nope.py")
+
+
+@pytest.mark.asyncio
+async def test_read_file_rejects_path_traversal(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+
+    with pytest.raises(github.GitHubError, match="leaves the repository"):
+        await github.read_file("octocat/Hello-World", "../secrets.py")
+
+    assert github_http == []
+
+
+@pytest.mark.asyncio
+async def test_openapi_spec_parses_yaml(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+    result = await github.openapi_spec("octocat/Hello-World", "openapi.yaml")
+
+    assert result["title"] == "Demo API"
+    assert result["version"] == "1.0.0"
+    assert result["spec_version"] == "3.0.0"
+    assert result["servers"] == ["https://api.example.test"]
+    assert result["count"] == 3
+    pairs = {(item["method"], item["path"]) for item in result["endpoints"]}
+    assert ("GET", "/users") in pairs
+    assert ("POST", "/users") in pairs
+    assert ("GET", "/users/{id}") in pairs
+
+
+@pytest.mark.asyncio
+async def test_openapi_spec_probes_common_paths(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+    result = await github.openapi_spec("octocat/Hello-World")
+
+    assert result["path"] == "openapi.yaml"
+    assert result["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_openapi_spec_not_found_is_actionable(monkeypatch):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    _patch_http(monkeypatch, handler)
+    with pytest.raises(github.GitHubError, match="No OpenAPI or Swagger file"):
+        await github.openapi_spec("octocat/Hello-World")
+
+
+@pytest.mark.asyncio
+async def test_recent_commits(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+    result = await github.recent_commits("octocat/Hello-World", "src/main.py", 5)
+
+    assert result["count"] == 1
+    assert result["path"] == "src/main.py"
+    assert result["items"][0]["sha"] == "abcdef1"
+    assert result["items"][0]["message"] == "Fix 401 handling in the orders endpoint"
+    assert result["items"][0]["author"] == "alice"
+    assert github_http[0]["path"] == "/repos/octocat/Hello-World/commits"
+    assert github_http[0]["params"]["path"] == "src/main.py"
+    assert github_http[0]["params"]["per_page"] == "5"
+
+
+@pytest.mark.asyncio
+async def test_workflow_runs_counts_failures(monkeypatch, github_http):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+    result = await github.workflow_runs("octocat/Hello-World", "main", 5)
+
+    assert result["count"] == 2
+    assert result["failed"] == 1
+    assert result["branch"] == "main"
+    assert result["items"][0]["conclusion"] == "failure"
+    assert github_http[0]["path"] == "/repos/octocat/Hello-World/actions/runs"
+    assert github_http[0]["params"]["branch"] == "main"
+
+
+@pytest.mark.asyncio
+async def test_workflow_runs_missing_is_explained(monkeypatch):
+    monkeypatch.setattr(settings, "github_pat", "github_pat_test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    _patch_http(monkeypatch, handler)
+    with pytest.raises(github.GitHubError, match="Actions is not available"):
+        await github.workflow_runs("octocat/Hello-World")
+
+
+# ── Routing for repository contents ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_github_file_route_keeps_path_out_of_the_repo():
+    decision = await route_question("read src/main.py in octocat/Hello-World")
+
+    assert decision.route == "tool:github_file"
+    assert decision.args == {
+        "repo": "octocat/Hello-World",
+        "path": "src/main.py",
+    }
+
+
+@pytest.mark.asyncio
+async def test_github_spec_route():
+    decision = await route_question(
+        "show me the openapi spec in octocat/Hello-World"
+    )
+
+    assert decision.route == "tool:github_spec"
+    assert decision.args["repo"] == "octocat/Hello-World"
+    assert decision.args["path"] == ""
+
+
+@pytest.mark.asyncio
+async def test_github_commits_route_for_one_file():
+    decision = await route_question(
+        "show recent commits for src/main.py in octocat/Hello-World"
+    )
+
+    assert decision.route == "tool:github_commits"
+    assert decision.args["path"] == "src/main.py"
+
+
+@pytest.mark.asyncio
+async def test_github_ci_route_and_branch(monkeypatch):
+    monkeypatch.setattr(settings, "github_default_repo", "octocat/Hello-World")
+    decision = await route_question("are the GitHub Actions checks passing on main?")
+
+    assert decision.route == "tool:github_ci"
+    assert decision.args["repo"] == "octocat/Hello-World"
+    assert decision.args["branch"] == "main"
+
+
+@pytest.mark.asyncio
+async def test_file_question_uses_the_default_repo(monkeypatch):
+    monkeypatch.setattr(settings, "github_default_repo", "octocat/Hello-World")
+    decision = await route_question("what is in package.json?")
+
+    assert decision.route == "tool:github_file"
+    assert decision.args["repo"] == "octocat/Hello-World"
+    assert decision.args["path"] == "package.json"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question",
+    [
+        "what is package.json?",
+        "how do I write an OpenAPI spec for my API?",
+        "what is CI/CD?",
+        "what is the repository pattern?",
+        "what is next.js?",
+        "what is TCP/IP?",
+        "difference between JSON/YAML",
+    ],
+)
+async def test_github_content_docs_stay_in_rag(question, monkeypatch):
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_MODEL", raising=False)
+
+    decision = await route_question(question)
+    assert decision.route == "rag"
+
+
+def test_new_github_tools_are_wired_into_ask():
+    import app.routes.ask as ask_module
+
+    for name in ("github_file", "github_spec", "github_commits", "github_ci"):
+        assert name in ask_module._TOOL_EXECUTORS
+
+
+def test_new_github_labels_are_short_and_real():
+    import app.routes.ask as ask_module
+
+    assert (
+        ask_module._tool_label(
+            "github_ci", {"repo": "o/r", "branch": "main", "count": 2, "failed": 1}
+        )
+        == "GitHub · 2 runs · main · 1 failed"
+    )
+    assert (
+        ask_module._tool_label("github_spec", {"path": "openapi.yaml", "count": 3})
+        == "GitHub · openapi.yaml · 3 endpoints"
+    )
+    assert (
+        ask_module._tool_label(
+            "github_file", {"path": "src/main.py", "kind": "file", "lines": 1}
+        )
+        == "GitHub · src/main.py · 1 line"
+    )
+    assert (
+        ask_module._tool_label(
+            "github_commits", {"repo": "o/r", "count": 1, "path": None}
+        )
+        == "GitHub · 1 commit"
+    )
+
+
+def test_spec_fallback_summary_lists_endpoints():
+    text = format_tool_result(
+        "github_spec",
+        {
+            "path": "openapi.yaml",
+            "title": "Demo API",
+            "version": "1.0.0",
+            "endpoints": [{"method": "GET", "path": "/users"}],
+        },
+    )
+
+    assert "Demo API 1.0.0" in text
+    assert "GET /users" in text

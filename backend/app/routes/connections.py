@@ -3,7 +3,7 @@ from urllib.parse import urlencode, urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
-from app.connectors import github
+from app.connectors import github, sentry
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.mcp import google
@@ -50,6 +50,7 @@ async def connections(user: dict | None = Depends(get_current_user)) -> dict:
     return {
         "github": await github.connection_status(),
         "google": await google.status(_user_id(user)),
+        "sentry": await sentry.connection_status(),
     }
 
 
