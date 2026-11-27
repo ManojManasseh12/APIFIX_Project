@@ -219,6 +219,35 @@ def test_enabled_without_a_working_client_still_streams(monkeypatch):
     assert asyncio.run(collect()) == ["hello"]
 
 
+def test_client_hides_inputs_and_outputs_for_graph_runs(monkeypatch):
+    """LangGraph sends raw state to LangSmith; the client must sanitize it."""
+    monkeypatch.setattr(settings, "langsmith_tracing", True)
+    monkeypatch.setattr(settings, "langsmith_api_key", "lsv2_test_key")
+
+    captured: dict = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import langsmith
+
+    monkeypatch.setattr(langsmith, "Client", FakeClient)
+    reset_client()
+
+    client = get_client()
+
+    assert isinstance(client, FakeClient)
+    assert captured["hide_inputs"] is sanitize_for_trace
+    assert captured["hide_outputs"] is sanitize_for_trace
+
+    hidden = captured["hide_inputs"](
+        {"headers": {"Authorization": "Bearer top-secret"}}
+    )
+    assert hidden["headers"]["Authorization"] == "<REDACTED>"
+    assert "top-secret" not in str(hidden)
+
+
 def test_enabled_decorator_wraps_but_still_calls_through(monkeypatch):
     """The wrapper must preserve behaviour; tracing is a side channel."""
     monkeypatch.setattr(settings, "langsmith_tracing", True)

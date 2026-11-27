@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     # Salt for hashing user ids before they appear in trace metadata.
     langsmith_user_salt: str = "apifix"
 
+    # LangGraph orchestration. The legacy /api/diagnose path stays the
+    # default until the graph reaches parity; flip the flag to compare.
+    use_langgraph_diagnose: bool = False
+    langgraph_recursion_limit: int = Field(default=12, ge=4, le=50)
+
     # GitHub connector (Ask tab). The token stays server-side; the browser
     # only ever sees connection status. Empty GITHUB_PAT = not connected.
     github_pat: str = ""

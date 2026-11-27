@@ -85,7 +85,23 @@ async def test_health_over_httpx():
     assert body["service"] == "apifix-ai"
     assert body["runner"] == "httpx"
     assert body["retrieval_backend"] in ("local", "supabase")
+    assert body["diagnose_engine"] in ("legacy", "langgraph")
     assert isinstance(body["providers"], list)
+
+
+async def test_health_reports_the_active_diagnose_engine(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "use_langgraph_diagnose", False)
+    async with api_client() as client:
+        legacy = (await client.get("/api/health")).json()
+
+    monkeypatch.setattr(settings, "use_langgraph_diagnose", True)
+    async with api_client() as client:
+        graph = (await client.get("/api/health")).json()
+
+    assert legacy["diagnose_engine"] == "legacy"
+    assert graph["diagnose_engine"] == "langgraph"
 
 
 async def test_run_analytics_endpoint_returns_dashboard_data(monkeypatch):

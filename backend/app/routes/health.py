@@ -22,6 +22,9 @@ def health():
         "service": "apifix-ai",
         "runner": "httpx",
         "retrieval_backend": settings.retrieval_backend,
+        "diagnose_engine": (
+            "langgraph" if settings.use_langgraph_diagnose else "legacy"
+        ),
         "database": "supabase" if settings.database_url_configured else "sqlite",
         "providers": families,
         "langsmith": {

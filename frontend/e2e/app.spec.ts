@@ -90,6 +90,25 @@ test("loads the diagnose workspace and switches to Ask API", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "AI diagnosis" })).toBeVisible();
 });
 
+test("header shows the real diagnose engine reported by health", async ({ page }) => {
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        retrieval_backend: "local",
+        providers: ["groq"],
+        diagnose_engine: "langgraph",
+      },
+    })
+  );
+
+  await page.goto("/");
+
+  await expect(page.getByTitle(/LangGraph/)).toBeVisible();
+  await expect(page.getByText("Engine:")).toBeVisible();
+  await expect(page.getByText("LangGraph", { exact: true })).toBeVisible();
+});
+
 test("diagnose, fill redacted secret, and retest successfully", async ({ page }) => {
   await mockDiagnosis(page, {
     set_headers: { Authorization: "Bearer <REDACTED>" },

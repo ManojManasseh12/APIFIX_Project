@@ -26,3 +26,8 @@ os.environ["MCP_TOKEN_ENCRYPTION_KEY"] = ""
 # tracing as off unless both the flag and a key are set.
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGSMITH_API_KEY"] = ""
+
+# The local .env may enable the opt-in LangGraph diagnose flow for demos.
+# Tests must stay on the legacy path by default; graph tests monkeypatch the
+# flag explicitly where they need it.
+os.environ["USE_LANGGRAPH_DIAGNOSE"] = "false"

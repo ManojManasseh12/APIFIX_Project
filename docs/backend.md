@@ -105,6 +105,23 @@ machine-usable patch — the prompt and parsers are the contract with the UI.
 | `retriever.py` | version detection & mismatch guard, local retriever variants | Prevents diagnosing v3 requests with v2 docs |
 | `query.py` | `build_query(spec, observation)` — status-aware: 2xx queries "successful response 2xx semantics" and ignores stale failure-phrased questions | Fixed a real bug: stale preset questions polluted retrieval for successful calls |
 
+### `graphs/` — LangGraph diagnose flow (opt-in)
+
+| File | What | Why |
+|---|---|---|
+| `state.py` | `DiagnoseState` (JSON-serializable) + model conversion helpers | State can be traced or checkpointed later; Pydantic objects are rebuilt at node boundaries |
+| `diagnose.py` | nodes (`approve`, `observe`, `retrieve`, `diagnose`, `validate`, `save`, `low_confidence`, `error`), conditional edges, capped loops | Makes the pipeline explicit and inspectable without changing the SSE contract |
+| `stream.py` | `emit()` bridge using `get_stream_writer()` | Nodes emit the same named events the route already forwards; no streaming context = no-op |
+
+`USE_LANGGRAPH_DIAGNOSE=false` keeps the legacy `legacy_events()` path as the
+default. Set it to `true` to run the graph; `/api/ask` is unchanged. Loop caps:
+retrieval at most 2 attempts (the second drops the version path), diagnosis at
+most 2 generations (one citation repair), and
+`LANGGRAPH_RECURSION_LIMIT=12` bounds the whole run. Both paths emit the same
+`observation`, `retrieval`, `provider`, `provider_fallback`, `token`, `done`
+and `error` events. Graph `trace` events update the root trace summary and are
+never forwarded to the browser.
+
 ## `observability/` — LangSmith tracing (optional)
 
 - `langsmith.py` | off-by-default wrappers (`traced`, `traced_stream`, `trace_call`, `get_client`, `flush_traces`, `shutdown_tracing`) | No key → no client → no network; streaming roots end on every exit path (normal, disconnect, error, cancel) |
@@ -125,9 +142,9 @@ with SQLite for offline runs.
 
 | Route | Endpoint(s) | Purpose |
 |---|---|---|
-| `health.py` | GET /api/health | real stack facts (runner, retrieval backend, database, provider families) → frontend status pills |
+| `health.py` | GET /api/health | real stack facts (runner, retrieval backend, diagnose engine, database, provider families) → frontend status pills |
 | `test.py` | POST /api/test | bare observation without AI |
-| `diagnose.py` | POST /api/diagnose | the SSE lifecycle: observe → retrieve → stream → patch → save |
+| `diagnose.py` | POST /api/diagnose | the SSE lifecycle: observe → retrieve → stream → patch → save (legacy, or the LangGraph flow when `USE_LANGGRAPH_DIAGNOSE=true`) |
 | `retest.py` | POST /api/retest | apply patch (redaction-aware) and diff |
 | `ask.py` | POST /api/ask | chat-style Q&A: the router (`app/ai/router.py`) sends API questions to RAG and tool questions to 7 live tools (`app/ai/tools.py`: weather, currency, DNS, IP, JWT/base64/URL decode, unix timestamp, world clock) |
 | `runs.py` | GET /api/runs | recent history for the sidebar |

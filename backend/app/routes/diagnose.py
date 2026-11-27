@@ -9,6 +9,7 @@ from app.ai.prompts import CITATION_RE, PATCH_RE, SYSTEM_PROMPT
 from app.ai.rag.pipeline import retrieve_for_api
 from app.ai.rag.query import build_query
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.core.errors import AllProvidersFailed, ApprovalRequired, StreamInterrupted
 from app.core.models import RequestSpec
 from app.core.security import require_approval
@@ -34,7 +35,7 @@ async def diagnose(
     user_id = user["user_id"] if user else None
     trace_summary: dict[str, object] = {}
 
-    async def events():
+    async def legacy_events():
         try:
             try:
                 require_approval(spec)
@@ -245,6 +246,48 @@ async def diagnose(
         except Exception as exc:
             trace_summary["error"] = type(exc).__name__
             yield sse("error", {"code": type(exc).__name__, "message": str(exc)})
+
+    async def graph_events():
+        # Imported lazily so the legacy path never loads LangGraph.
+        from app.ai.graphs import get_diagnose_graph
+
+        graph = get_diagnose_graph()
+        state = {
+            "spec": spec.model_dump(mode="json"),
+            "run_id": run_id,
+            "user_id": user_id,
+            "retrieval_attempts": 0,
+            "diagnosis_attempts": 0,
+            "trace": {},
+        }
+        config = {"recursion_limit": settings.langgraph_recursion_limit}
+        try:
+            async for item in graph.astream(
+                state, config=config, stream_mode="custom"
+            ):
+                if not isinstance(item, dict):
+                    continue
+                event = item.get("event")
+                data = item.get("data") or {}
+                if event == "trace":
+                    trace_summary.update(data)
+                    continue
+                if not isinstance(event, str):
+                    continue
+                if await request.is_disconnected():
+                    return
+                yield sse(event, data)
+        except Exception as exc:
+            trace_summary["error"] = type(exc).__name__
+            yield sse("error", {"code": type(exc).__name__, "message": str(exc)})
+
+    async def events():
+        if settings.use_langgraph_diagnose:
+            async for chunk in graph_events():
+                yield chunk
+            return
+        async for chunk in legacy_events():
+            yield chunk
 
     return StreamingResponse(
         traced_stream(

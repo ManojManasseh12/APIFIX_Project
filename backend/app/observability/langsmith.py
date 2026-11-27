@@ -65,6 +65,11 @@ def get_client() -> Any | None:
 
         kwargs: dict[str, Any] = {
             "api_key": settings.langsmith_api_key.strip(),
+            # Sanitize every run payload, including LangGraph state, before it
+            # leaves the process. The app's own traced spans already pass
+            # sanitized inputs/outputs; this is the safety net for graphs.
+            "hide_inputs": sanitize_for_trace,
+            "hide_outputs": sanitize_for_trace,
         }
         endpoint = (getattr(settings, "langsmith_endpoint", "") or "").strip()
         if endpoint:
